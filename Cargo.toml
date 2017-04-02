@@ -1,0 +1,13 @@
+[package]
+name = "ali_ecs_ctl"
+version = "0.1.0"
+authors = ["Gestalt LUR <gestapolur@gmail.com>"]
+
+[dependencies]
+hyper = "0.10"
+rustc-serialize = "0.3"
+url = "1.4.0"
+chrono = "0.3"
+uuid = { version = "0.4", features = ["serde", "v4"] }
+sha1 = "0.2.0"
+clap = "~2.22.2"
