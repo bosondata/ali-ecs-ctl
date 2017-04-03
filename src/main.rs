@@ -1,6 +1,6 @@
 mod hmac_sha1;
 
-extern crate hyper;
+extern crate reqwest;
 extern crate rustc_serialize;
 extern crate url;
 extern crate chrono;
@@ -10,9 +10,9 @@ extern crate clap;
 use std::io::Read;
 use std::env;
 use std::process::Command;
-use hyper::Url;
 use rustc_serialize::json::Json;
 use rustc_serialize::base64::{self, ToBase64};
+use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
 use uuid::Uuid;
@@ -90,7 +90,7 @@ fn describe_region() {
     for param in params {
         url.query_pairs_mut().append_pair(&param.0.clone(), &param.1.clone());
     }
-    let client = hyper::client::Client::new();
+    let client = reqwest::Client::new().unwrap();
     let mut text = String::new();
     let res = client.get(url.as_str())
         .send()
@@ -143,7 +143,7 @@ fn get_instances(verbose :bool) -> Vec<(String, String)> {
     for param in params {
         url.query_pairs_mut().append_pair(&param.0.clone(), &param.1.clone());
     }
-    let client = hyper::client::Client::new();
+    let client = reqwest::Client::new().unwrap();
     let mut text = String::new();
     client.get(url.as_str())
         .send()
@@ -203,16 +203,16 @@ fn reboot_instance(instance_id : &str) {
     for param in params {
         url.query_pairs_mut().append_pair(&param.0.clone(), &param.1.clone());
     }
-    let client = hyper::client::Client::new();
+    let client = reqwest::Client::new().unwrap();
     let mut response_body = String::new();
     let mut res = client.get(url.as_str())
         .send()
         .unwrap();    
     res.read_to_string(&mut response_body).unwrap();
-    if res.status == hyper::Ok {
+    if res.status() == &reqwest::StatusCode::Ok {
         println!("Reboot request to {} sended!", instance_id);
     } else {
-        println!("Reboot request fail with status {:?}", res.status);
+        println!("Reboot request fail with status {:?}", res.status());
     }
 }
 
@@ -256,7 +256,7 @@ fn reboot_single(target_ip :&str) {
 
 fn main() {
     let matches = App::new("Aliyun ECS Controller")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .about("A cli tool for control(rebool only for now) Aliyun ECS instances.")
         .arg(Arg::with_name("COMMAND")
              .help("command to run, choices: reboot/rebootall/list")
