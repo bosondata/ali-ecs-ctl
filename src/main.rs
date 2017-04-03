@@ -1,6 +1,6 @@
 mod hmac_sha1;
 
-extern crate hyper;
+extern crate reqwest;
 extern crate rustc_serialize;
 extern crate url;
 extern crate chrono;
@@ -10,9 +10,9 @@ extern crate clap;
 use std::io::Read;
 use std::env;
 use std::process::Command;
-use hyper::Url;
 use rustc_serialize::json::Json;
 use rustc_serialize::base64::{self, ToBase64};
+use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
 use uuid::Uuid;
@@ -22,8 +22,8 @@ use clap::{Arg, App};
 static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";
 static HTTP_GET: &'static str = "GET";
 
-fn signature(api_params :Vec<(String, String)>) -> Vec<(String, String)> {
-    /* 
+fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
+    /*
     Aliyun API basic params sample:
     http://ecs.aliyuncs.com/?
     TimeStamp=2016-02-23T12:46:24Z
@@ -35,26 +35,26 @@ fn signature(api_params :Vec<(String, String)>) -> Vec<(String, String)> {
     Version=2014-05-26
     SignatureVersion=1.0
      */
-    let uuid_str :&str = &Uuid::new_v4().hyphenated().to_string();
-    let ts :&str = &UTC::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-    let access_key_id :&str = &env::var("ALIYUN_ACCESS_KEY_ID").unwrap();
-    let mut params : Vec<(String, String)> = vec![
-        ("Timestamp", ts),
-        ("Format", "json"),
-        ("AccessKeyId", access_key_id),
-        ("SignatureMethod", "HMAC-SHA1"),
-        ("SignatureNonce", uuid_str),
-        ("Version", "2014-05-26"),
-        ("SignatureVersion", "1.0"),
-    ]
-        .iter()
-        .map(|x| (x.0.to_string(), x.1.to_string()))
-        .collect();
+    let uuid_str: &str = &Uuid::new_v4().hyphenated().to_string();
+    let ts: &str = &UTC::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let access_key_id: &str = &env::var("ALIYUN_ACCESS_KEY_ID").unwrap();
+    let mut params: Vec<(String, String)> = vec![("Timestamp", ts),
+                                                 ("Format", "json"),
+                                                 ("AccessKeyId", access_key_id),
+                                                 ("SignatureMethod", "HMAC-SHA1"),
+                                                 ("SignatureNonce", uuid_str),
+                                                 ("Version", "2014-05-26"),
+                                                 ("SignatureVersion", "1.0")]
+            .iter()
+            .map(|x| (x.0.to_string(), x.1.to_string()))
+            .collect();
     params.extend(api_params.clone());
     params.sort();
     let mut sign_params: Vec<String> = Vec::new();
     for param in params.iter() {
-        let param_: &str = &vec![param.0.clone(), String::from("="), param.1.clone()].join("").to_string();
+        let param_: &str = &vec![param.0.clone(), String::from("="), param.1.clone()]
+                                .join("")
+                                .to_string();
         sign_params.push(param_.to_string().clone());
     }
     let string_to_sign = sign_params.join("&");
@@ -62,21 +62,23 @@ fn signature(api_params :Vec<(String, String)>) -> Vec<(String, String)> {
     for p in utf8_percent_encode(&string_to_sign, USERINFO_ENCODE_SET) {
         string_to_sign_percent_encoded.push_str(p);
     }
-    string_to_sign_percent_encoded = vec![
-        HTTP_GET.clone().to_string(),
-        "&%2F&".to_string(),
-        string_to_sign_percent_encoded
-            .replace("*", "%2A")
-            .replace("+", "%20")
-            .replace("%7E", "~")
-            .replace("&", "%26")
-            .replace("%3A", "%253A")]
-        .join("");
+    string_to_sign_percent_encoded = vec![HTTP_GET.clone().to_string(),
+                                          "&%2F&".to_string(),
+                                          string_to_sign_percent_encoded
+                                              .replace("*", "%2A")
+                                              .replace("+", "%20")
+                                              .replace("%7E", "~")
+                                              .replace("&", "%26")
+                                              .replace("%3A", "%253A")]
+            .join("");
     let sign_bytes = string_to_sign_percent_encoded.as_bytes();
     let secret = vec![env::var("ALIYUN_SECRET").unwrap(), "&".to_string()].join("");
     let secret_bytes = secret.as_bytes();
     let signed = hmac_sha1(secret_bytes, sign_bytes).to_base64(base64::STANDARD);
-    let mut signed_params :Vec<(String, String)> = params.iter().map(|x| (x.0.to_string(), x.1.to_string())).collect();
+    let mut signed_params: Vec<(String, String)> = params
+        .iter()
+        .map(|x| (x.0.to_string(), x.1.to_string()))
+        .collect();
     signed_params.push(("Signature".to_string(), signed));
     return signed_params;
 }
@@ -90,7 +92,7 @@ fn describe_region() {
     for param in params {
         url.query_pairs_mut().append_pair(&param.0.clone(), &param.1.clone());
     }
-    let client = hyper::client::Client::new();
+    let client = reqwest::Client::new().unwrap();
     let mut text = String::new();
     let res = client.get(url.as_str())
         .send()
@@ -102,7 +104,7 @@ fn describe_region() {
 }
  */
 
-fn ping_ok(ip :&str) -> bool {
+fn ping_ok(ip: &str) -> bool {
     let output = Command::new("ping")
         .arg(ip)
         .arg("-c 3")
@@ -118,7 +120,7 @@ fn ping_ok(ip :&str) -> bool {
     return true;
 }
 
-fn is_ssh_timeout(ip :&str) -> bool {
+fn is_ssh_timeout(ip: &str) -> bool {
     let output = Command::new("ssh")
         .arg(ip)
         .arg("-o ConnectTimeout=5")
@@ -133,19 +135,20 @@ fn is_ssh_timeout(ip :&str) -> bool {
     return true;
 }
 
-fn get_instances(verbose :bool) -> Vec<(String, String)> {
+fn get_instances(verbose: bool) -> Vec<(String, String)> {
     let mut url = Url::parse(ALIYUN_API).unwrap();
-    let params = signature(vec![
-        (String::from("Action"), String::from("DescribeInstances")),
-        // TODO: max return size is 100, need pagination if we use 100+ instances.
-        (String::from("PageSize"), String::from("100")),
-        (String::from("RegionId"), String::from("cn-beijing"))]);
+    let params = signature(vec![(String::from("Action"), String::from("DescribeInstances")),
+                                // TODO: max return size is 100, need pagination if we use 100+ instances.
+                                (String::from("PageSize"), String::from("100")),
+                                (String::from("RegionId"), String::from("cn-beijing"))]);
     for param in params {
-        url.query_pairs_mut().append_pair(&param.0.clone(), &param.1.clone());
+        url.query_pairs_mut()
+            .append_pair(&param.0.clone(), &param.1.clone());
     }
-    let client = hyper::client::Client::new();
+    let client = reqwest::Client::new().unwrap();
     let mut text = String::new();
-    client.get(url.as_str())
+    client
+        .get(url.as_str())
         .send()
         .unwrap()
         .read_to_string(&mut text)
@@ -154,17 +157,29 @@ fn get_instances(verbose :bool) -> Vec<(String, String)> {
     let mut instance_info = vec![];
     let response_obj = response.as_object().unwrap();
     for instances in response_obj
-        .get("Instances")
-        .unwrap()
-        .as_object()
-        .unwrap()
-        .get("Instance")
-        .unwrap()
-        .as_array()
-        .iter() {
+            .get("Instances")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("Instance")
+            .unwrap()
+            .as_array()
+            .iter() {
         for instance in instances.iter() {
-            let instance_id = instance.as_object().unwrap().get("InstanceId").unwrap().as_string().unwrap();
-            let instance_name = instance.as_object().unwrap().get("InstanceName").unwrap().as_string().unwrap();
+            let instance_id = instance
+                .as_object()
+                .unwrap()
+                .get("InstanceId")
+                .unwrap()
+                .as_string()
+                .unwrap();
+            let instance_name = instance
+                .as_object()
+                .unwrap()
+                .get("InstanceName")
+                .unwrap()
+                .as_string()
+                .unwrap();
             let instance_ip = instance
                 .as_object()
                 .unwrap()
@@ -193,30 +208,27 @@ fn get_instances(verbose :bool) -> Vec<(String, String)> {
     return instance_info;
 }
 
-fn reboot_instance(instance_id : &str) {
+fn reboot_instance(instance_id: &str) {
     let mut url = Url::parse(ALIYUN_API).unwrap();
-    let params = signature(vec![
-        (String::from("Action"), String::from("RebootInstance")),
-        (String::from("InstanceId"), String::from(instance_id)),
-        (String::from("ForceStop"), String::from("true")),
-    ]);
+    let params = signature(vec![(String::from("Action"), String::from("RebootInstance")),
+                                (String::from("InstanceId"), String::from(instance_id)),
+                                (String::from("ForceStop"), String::from("true"))]);
     for param in params {
-        url.query_pairs_mut().append_pair(&param.0.clone(), &param.1.clone());
+        url.query_pairs_mut()
+            .append_pair(&param.0.clone(), &param.1.clone());
     }
-    let client = hyper::client::Client::new();
+    let client = reqwest::Client::new().unwrap();
     let mut response_body = String::new();
-    let mut res = client.get(url.as_str())
-        .send()
-        .unwrap();    
+    let mut res = client.get(url.as_str()).send().unwrap();
     res.read_to_string(&mut response_body).unwrap();
-    if res.status == hyper::Ok {
+    if res.status() == &reqwest::StatusCode::Ok {
         println!("Reboot request to {} sended!", instance_id);
     } else {
-        println!("Reboot request fail with status {:?}", res.status);
+        println!("Reboot request fail with status {:?}", res.status());
     }
 }
 
-fn reboot_unresponded_instances(check_func :&Fn(&str) -> bool) {
+fn reboot_unresponded_instances(check_func: &Fn(&str) -> bool) {
     let instance_info = get_instances(false);
     let cnt = instance_info.len();
     let mut reboot_cnt = 0;
@@ -243,7 +255,7 @@ fn reboot_all() {
     println!("{} instance(s) reboot(force) request sended!", cnt);
 }
 
-fn reboot_single(target_ip :&str) {
+fn reboot_single(target_ip: &str) {
     for instance in get_instances(false) {
         let (id, ip) = instance;
         if ip == target_ip {
@@ -256,23 +268,23 @@ fn reboot_single(target_ip :&str) {
 
 fn main() {
     let matches = App::new("Aliyun ECS Controller")
-        .version("0.1.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .about("A cli tool for control(rebool only for now) Aliyun ECS instances.")
         .arg(Arg::with_name("COMMAND")
-             .help("command to run, choices: reboot/rebootall/list")
-             .required(true)
-             .index(1))
+                 .help("command to run, choices: reboot/rebootall/list")
+                 .required(true)
+                 .index(1))
         .arg(Arg::with_name("checker")
-             .short("c")
-             .long("checker")
-             .value_name("checker")
-             .help("Method use to check instance availability, choices: ssh/ping")
-             .takes_value(true))
+                 .short("c")
+                 .long("checker")
+                 .value_name("checker")
+                 .help("Method use to check instance availability, choices: ssh/ping")
+                 .takes_value(true))
         .arg(Arg::with_name("ip")
-             .long("ip")
-             .value_name("ip")
-             .help("Specify single instance IP to reboot")
-             .takes_value(true))
+                 .long("ip")
+                 .value_name("ip")
+                 .help("Specify single instance IP to reboot")
+                 .takes_value(true))
         .get_matches();
     let cmd = matches.value_of("COMMAND").unwrap();
     match cmd {
@@ -281,25 +293,21 @@ fn main() {
             let ip = matches.value_of("ip").unwrap_or("");
             if ip == "" {
                 match checker {
-                    "ssh" => {
-                        reboot_unresponded_instances(&is_ssh_timeout)
-                    },
-                    "ping" => {
-                        reboot_unresponded_instances(&ping_ok)
-                    },
+                    "ssh" => reboot_unresponded_instances(&is_ssh_timeout),
+                    "ping" => reboot_unresponded_instances(&ping_ok),
                     _ => println!("Unknown checker."),
                 }
             } else {
                 reboot_single(ip);
             }
-        },
+        }
         "rebootall" => {
             println!("Start reboot all nodes!");
             reboot_all()
-        },
+        }
         "list" => {
             let _ = get_instances(true);
-        },
+        }
         _ => println!("Unknown command."),
     }
 }
