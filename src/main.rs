@@ -4,13 +4,17 @@ extern crate url;
 extern crate chrono;
 extern crate uuid;
 extern crate clap;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
 
 mod hmac_sha1;
+mod rep;
 
 use std::io::Read;
 use std::env;
 use std::process::Command;
-use rustc_serialize::json::Json;
 use rustc_serialize::base64::{self, ToBase64};
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
@@ -144,57 +148,18 @@ fn get_instances(verbose: bool) -> Vec<(String, String)> {
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
-    let response = Json::from_str(&text).unwrap();
+    let response = serde_json::from_str::<rep::Instances>(&text).unwrap();
     let mut instance_info = vec![];
-    let response_obj = response.as_object().unwrap();
-    for instances in response_obj
-            .get("Instances")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .get("Instance")
-            .unwrap()
-            .as_array()
-            .iter() {
-        for instance in instances.iter() {
-            let instance_id = instance
-                .as_object()
-                .unwrap()
-                .get("InstanceId")
-                .unwrap()
-                .as_string()
-                .unwrap();
-            let instance_name = instance
-                .as_object()
-                .unwrap()
-                .get("InstanceName")
-                .unwrap()
-                .as_string()
-                .unwrap();
-            let instance_ip = instance
-                .as_object()
-                .unwrap()
-                .get("PublicIpAddress")
-                .unwrap()
-                .as_object()
-                .unwrap()
-                .get("IpAddress")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .first()
-                .unwrap()
-                .as_string()
-                .unwrap();
-            if verbose == true {
-                println!("Id: {} Name: {} Public IP: {}",
-                         instance_id,
-                         instance_name,
-                         instance_ip,
-                );
-            }
-            instance_info.push((instance_id.to_string(), instance_ip.to_string()));
+    for instance in &response.instances {
+        let instance_ip = instance.public_ip_address.ip_address[0].clone();
+        if verbose {
+            println!("Id: {} Name: {} Public IP: {}",
+                        instance.id,
+                        instance.name,
+                        instance_ip
+            );
         }
+        instance_info.push((instance.id.clone(), instance_ip.to_string()));
     }
     return instance_info;
 }
