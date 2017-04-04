@@ -132,7 +132,7 @@ fn is_ssh_timeout(ip: &str) -> bool {
     return true;
 }
 
-fn get_instances(verbose: bool) -> Vec<(String, String)> {
+fn get_instances() -> Vec<rep::Instance> {
     let mut url = Url::parse(ALIYUN_API).unwrap();
     let params = signature(vec![("Action".to_string(), "DescribeInstances".to_string()),
                                 // TODO: max return size is 100, need pagination if we use 100+ instances.
@@ -148,19 +148,7 @@ fn get_instances(verbose: bool) -> Vec<(String, String)> {
         .read_to_string(&mut text)
         .unwrap();
     let response = serde_json::from_str::<rep::Instances>(&text).unwrap();
-    let mut instance_info = vec![];
-    for instance in &response.instances.instance {
-        let instance_ip = instance.public_ip_address.ip_address[0].clone();
-        if verbose {
-            println!("Id: {} Name: {} Public IP: {}",
-                        instance.id,
-                        instance.name,
-                        instance_ip
-            );
-        }
-        instance_info.push((instance.id.clone(), instance_ip.to_string()));
-    }
-    return instance_info;
+    return response.instances;
 }
 
 fn reboot_instance(instance_id: &str) {
@@ -181,14 +169,14 @@ fn reboot_instance(instance_id: &str) {
 }
 
 fn reboot_unresponded_instances(check_func: &Fn(&str) -> bool) {
-    let instance_info = get_instances(false);
+    let instance_info = get_instances();
     let cnt = instance_info.len();
     let mut reboot_cnt = 0;
     for instance in instance_info {
-        let (id, ip) = instance;
-        if !check_func(&ip) {
+        let ip = instance.ip();
+        if !check_func(ip) {
             println!("{} no ping/ssh respond, sending reboot(force) request.", ip);
-            reboot_instance(&id);
+            reboot_instance(&instance.id);
             reboot_cnt += 1;
         } else {
             println!("{} is OK.", ip);
@@ -198,20 +186,18 @@ fn reboot_unresponded_instances(check_func: &Fn(&str) -> bool) {
 }
 
 fn reboot_all() {
-    let instance_info = get_instances(false);
+    let instance_info = get_instances();
     let cnt = instance_info.len();
     for instance in instance_info {
-        let (id, _) = instance;
-        reboot_instance(&id);
+        reboot_instance(&instance.id);
     }
     println!("{} instance(s) reboot(force) request sended!", cnt);
 }
 
 fn reboot_single(target_ip: &str) {
-    for instance in get_instances(false) {
-        let (id, ip) = instance;
-        if ip == target_ip {
-            reboot_instance(&id);
+    for instance in get_instances() {
+        if instance.ip() == target_ip {
+            reboot_instance(&instance.id);
             return;
         }
     }
@@ -258,7 +244,13 @@ fn main() {
             reboot_all()
         }
         "list" => {
-            let _ = get_instances(true);
+            for instance in &get_instances() {
+                println!("Id: {} Name: {} Public IP: {}",
+                            instance.id,
+                            instance.name,
+                            instance.ip()
+                );
+            }
         }
         _ => println!("Unknown command."),
     }
