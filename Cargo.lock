@@ -1,6 +1,6 @@
 [root]
-name = "ali_ecs_ctl"
-version = "0.1.0"
+name = "ali-ecs-ctl"
+version = "0.2.0"
 dependencies = [
  "chrono 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "clap 2.22.2 (registry+https://github.com/rust-lang/crates.io-index)",

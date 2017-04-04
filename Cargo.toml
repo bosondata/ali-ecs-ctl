@@ -1,6 +1,6 @@
 [package]
 authors = ["Gestalt LUR <gestapolur@gmail.com>"]
-name = "ali_ecs_ctl"
+name = "ali-ecs-ctl"
 version = "0.2.0"
 
 [dependencies]
