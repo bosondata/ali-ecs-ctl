@@ -1,9 +1,9 @@
 extern crate reqwest;
-extern crate rustc_serialize;
 extern crate url;
 extern crate chrono;
 extern crate uuid;
 extern crate clap;
+extern crate base64;
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -15,7 +15,6 @@ mod rep;
 use std::io::Read;
 use std::env;
 use std::process::Command;
-use rustc_serialize::base64::{self, ToBase64};
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
@@ -74,7 +73,7 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
     let secret_bytes = vec![env::var("ALIYUN_SECRET").unwrap(), "&".to_string()]
         .join("")
         .into_bytes();
-    let signed = hmac_sha1(&secret_bytes, &sign_bytes).to_base64(base64::STANDARD);
+    let signed = base64::encode(&hmac_sha1(&secret_bytes, &sign_bytes));
     let mut signed_params: Vec<(String, String)> = params
         .iter()
         .map(|x| (x.0.to_string(), x.1.to_string()))

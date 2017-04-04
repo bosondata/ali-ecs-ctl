@@ -4,11 +4,11 @@ name = "ali-ecs-ctl"
 version = "0.2.0"
 
 [dependencies]
+base64 = "0.4"
 chrono = "0.3"
 clap = "2.22"
 hyper = "0.10"
 reqwest = "0.5"
-rustc-serialize = "0.3"
 serde = "0.9"
 serde_derive = "0.9"
 serde_json = "0.9"
