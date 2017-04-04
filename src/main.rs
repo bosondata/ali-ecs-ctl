@@ -149,7 +149,7 @@ fn get_instances(verbose: bool) -> Vec<(String, String)> {
         .unwrap();
     let response = serde_json::from_str::<rep::Instances>(&text).unwrap();
     let mut instance_info = vec![];
-    for instance in &response.instances {
+    for instance in &response.instances.instance {
         let instance_ip = instance.public_ip_address.ip_address[0].clone();
         if verbose {
             println!("Id: {} Name: {} Public IP: {}",
