@@ -54,14 +54,11 @@ pub fn hmac_sha1(key: &[u8], message: &[u8]) -> [u8; SHA1_DIGEST_BYTES] {
 
 
 #[cfg(test)]
-extern crate rustc_serialize;
-#[cfg(test)]
 mod tests {
+    extern crate hex;
+    use self::hex::ToHex;
 
     use hmac_sha1;
-
-    use rustc_serialize::hex::ToHex;
-
 
     #[test]
     fn test_vector1() {

@@ -25,31 +25,31 @@ export ALIYUN_SECRET=<ALIYUN-SECRET>
 ### List instances
 
 ```bash
-$ ali_ecs_ctl list
+$ ali-ecs-ctl list
 ```
 
 ### Reboot instances
 
 Reboot instances if ssh timeout:
 ```bash
-$ ali_ecs_ctl reboot -c ssh
+$ ali-ecs-ctl reboot -c ssh
 ```
 
 Reboot instances if ping timeout:
 ```bash
-$ ali_ecs_ctl reboot -c ping
+$ ali-ecs-ctl reboot -c ping
 ```
 
 Reboot single instances by ip:
 ```bash
-$ ali_ecs_ctl reboot --ip <instance_public_ip_address>
+$ ali-ecs-ctl reboot --ip <instance_public_ip_address>
 ```
 
 
 ### Reboot ALL instances!
 
 ```bash
-$ ali_ecs_ctl rebootall
+$ ali-ecs-ctl rebootall
 ```
 
 

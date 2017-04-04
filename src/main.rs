@@ -1,17 +1,20 @@
-mod hmac_sha1;
-
 extern crate reqwest;
-extern crate rustc_serialize;
 extern crate url;
 extern crate chrono;
 extern crate uuid;
 extern crate clap;
+extern crate base64;
+extern crate serde;
+#[macro_use]
+extern crate serde_derive;
+extern crate serde_json;
+
+mod hmac_sha1;
+mod rep;
 
 use std::io::Read;
 use std::env;
 use std::process::Command;
-use rustc_serialize::json::Json;
-use rustc_serialize::base64::{self, ToBase64};
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
@@ -48,33 +51,29 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
             .iter()
             .map(|x| (x.0.to_string(), x.1.to_string()))
             .collect();
-    params.extend(api_params.clone());
+    params.extend(api_params);
     params.sort();
-    let mut sign_params: Vec<String> = Vec::new();
-    for param in params.iter() {
-        let param_: &str = &vec![param.0.clone(), String::from("="), param.1.clone()]
-                                .join("")
-                                .to_string();
-        sign_params.push(param_.to_string().clone());
-    }
+    let mut sign_params: Vec<String> = Vec::with_capacity(params.len());
+    sign_params.extend(params
+                           .iter()
+                           .map(|param| vec![param.0.clone(), "=".to_string(), param.1.clone()].join("")));
     let string_to_sign = sign_params.join("&");
     let mut string_to_sign_percent_encoded = String::new();
-    for p in utf8_percent_encode(&string_to_sign, USERINFO_ENCODE_SET) {
-        string_to_sign_percent_encoded.push_str(p);
-    }
-    string_to_sign_percent_encoded = vec![HTTP_GET.clone().to_string(),
-                                          "&%2F&".to_string(),
-                                          string_to_sign_percent_encoded
-                                              .replace("*", "%2A")
-                                              .replace("+", "%20")
-                                              .replace("%7E", "~")
-                                              .replace("&", "%26")
-                                              .replace("%3A", "%253A")]
-            .join("");
-    let sign_bytes = string_to_sign_percent_encoded.as_bytes();
-    let secret = vec![env::var("ALIYUN_SECRET").unwrap(), "&".to_string()].join("");
-    let secret_bytes = secret.as_bytes();
-    let signed = hmac_sha1(secret_bytes, sign_bytes).to_base64(base64::STANDARD);
+    string_to_sign_percent_encoded.extend(utf8_percent_encode(&string_to_sign, USERINFO_ENCODE_SET));
+    let sign_bytes = vec![HTTP_GET.to_string(),
+                          "&%2F&".to_string(),
+                          string_to_sign_percent_encoded
+                              .replace("*", "%2A")
+                              .replace("+", "%20")
+                              .replace("%7E", "~")
+                              .replace("&", "%26")
+                              .replace("%3A", "%253A")]
+            .join("")
+            .into_bytes();
+    let secret_bytes = vec![env::var("ALIYUN_SECRET").unwrap(), "&".to_string()]
+        .join("")
+        .into_bytes();
+    let signed = base64::encode(&hmac_sha1(&secret_bytes, &sign_bytes));
     let mut signed_params: Vec<(String, String)> = params
         .iter()
         .map(|x| (x.0.to_string(), x.1.to_string()))
@@ -87,19 +86,17 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
 fn describe_region() {
     let mut url = Url::parse(ALIYUN_API).unwrap();
     let params = signature(vec![
-        (String::from("Action"), String::from("DescribeRegions")),
-        (String::from("RegionId"), String::from("cn-hangzhou"))]);
-    for param in params {
-        url.query_pairs_mut().append_pair(&param.0.clone(), &param.1.clone());
-    }
+        ("Action".to_string(), "DescribeRegions".to_string()),
+        ("RegionId".to_string(), "cn-hangzhou".to_string())]);
+    url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
     let mut text = String::new();
-    let res = client.get(url.as_str())
+    let res = client.get(url)
         .send()
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
-    let data = Json::from_str(text.as_str()).unwrap();
+    let data = Json::from_str(&text).unwrap();
     println!("{}", data);
 }
  */
@@ -114,7 +111,7 @@ fn ping_ok(ip: &str) -> bool {
         .expect("failed to execute ping");
     let result = String::from_utf8_lossy(&output.stdout);
     // TODO: OS & ping version awareness
-    if result.find("100% packet loss") != None {
+    if result.find("100% packet loss").is_some() {
         return false;
     }
     return true;
@@ -129,7 +126,7 @@ fn is_ssh_timeout(ip: &str) -> bool {
         .expect("failed to execute ping");
 
     let result = String::from_utf8_lossy(&output.stderr);
-    if result.find("Connection timed out") != None {
+    if result.find("Connection timed out").is_some() {
         return false;
     }
     return true;
@@ -137,89 +134,44 @@ fn is_ssh_timeout(ip: &str) -> bool {
 
 fn get_instances(verbose: bool) -> Vec<(String, String)> {
     let mut url = Url::parse(ALIYUN_API).unwrap();
-    let params = signature(vec![(String::from("Action"), String::from("DescribeInstances")),
+    let params = signature(vec![("Action".to_string(), "DescribeInstances".to_string()),
                                 // TODO: max return size is 100, need pagination if we use 100+ instances.
-                                (String::from("PageSize"), String::from("100")),
-                                (String::from("RegionId"), String::from("cn-beijing"))]);
-    for param in params {
-        url.query_pairs_mut()
-            .append_pair(&param.0.clone(), &param.1.clone());
-    }
+                                ("PageSize".to_string(), "100".to_string()),
+                                ("RegionId".to_string(), "cn-beijing".to_string())]);
+    url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
     let mut text = String::new();
     client
-        .get(url.as_str())
+        .get(url)
         .send()
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
-    let response = Json::from_str(text.as_str()).unwrap();
+    let response = serde_json::from_str::<rep::Instances>(&text).unwrap();
     let mut instance_info = vec![];
-    let response_obj = response.as_object().unwrap();
-    for instances in response_obj
-            .get("Instances")
-            .unwrap()
-            .as_object()
-            .unwrap()
-            .get("Instance")
-            .unwrap()
-            .as_array()
-            .iter() {
-        for instance in instances.iter() {
-            let instance_id = instance
-                .as_object()
-                .unwrap()
-                .get("InstanceId")
-                .unwrap()
-                .as_string()
-                .unwrap();
-            let instance_name = instance
-                .as_object()
-                .unwrap()
-                .get("InstanceName")
-                .unwrap()
-                .as_string()
-                .unwrap();
-            let instance_ip = instance
-                .as_object()
-                .unwrap()
-                .get("PublicIpAddress")
-                .unwrap()
-                .as_object()
-                .unwrap()
-                .get("IpAddress")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .first()
-                .unwrap()
-                .as_string()
-                .unwrap();
-            if verbose == true {
-                println!("Id: {} Name: {} Public IP: {}",
-                         instance_id,
-                         instance_name,
-                         instance_ip,
-                );
-            }
-            instance_info.push((instance_id.to_string(), instance_ip.to_string()));
+    for instance in &response.instances.instance {
+        let instance_ip = instance.public_ip_address.ip_address[0].clone();
+        if verbose {
+            println!("Id: {} Name: {} Public IP: {}",
+                        instance.id,
+                        instance.name,
+                        instance_ip
+            );
         }
+        instance_info.push((instance.id.clone(), instance_ip.to_string()));
     }
     return instance_info;
 }
 
 fn reboot_instance(instance_id: &str) {
     let mut url = Url::parse(ALIYUN_API).unwrap();
-    let params = signature(vec![(String::from("Action"), String::from("RebootInstance")),
-                                (String::from("InstanceId"), String::from(instance_id)),
-                                (String::from("ForceStop"), String::from("true"))]);
-    for param in params {
-        url.query_pairs_mut()
-            .append_pair(&param.0.clone(), &param.1.clone());
-    }
+    let params = signature(vec![("Action".to_string(), "RebootInstance".to_string()),
+                                ("InstanceId".to_string(), instance_id.to_string()),
+                                ("ForceStop".to_string(), "true".to_string())]);
+    url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
     let mut response_body = String::new();
-    let mut res = client.get(url.as_str()).send().unwrap();
+    let mut res = client.get(url).send().unwrap();
     res.read_to_string(&mut response_body).unwrap();
     if res.status() == &reqwest::StatusCode::Ok {
         println!("Reboot request to {} sended!", instance_id);
