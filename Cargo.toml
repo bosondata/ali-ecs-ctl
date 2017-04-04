@@ -19,5 +19,8 @@ url = "1.4"
 features = ["serde", "v4"]
 version = "0.4"
 
+[dev-dependencies]
+hex = "0.2"
+
 [features]
 unstable = []
