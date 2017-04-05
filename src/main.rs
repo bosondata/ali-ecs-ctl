@@ -89,13 +89,11 @@ fn describe_regions() {
         ("RegionId".to_string(), "cn-hangzhou".to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
-    let mut text = String::new();
-    client.get(url)
+    let response = client.get(url)
         .send()
         .unwrap()
-        .read_to_string(&mut text)
+        .json::<rep::Regions>()
         .unwrap();
-    let response = serde_json::from_str::<rep::Regions>(&text).unwrap();
     for region in &response.regions {
         println!("{}\t{}", region.id, region.name);
     }
@@ -140,14 +138,12 @@ fn get_instances() -> Vec<rep::Instance> {
                                 ("RegionId".to_string(), "cn-beijing".to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
-    let mut text = String::new();
-    client
+    let response = client
         .get(url)
         .send()
         .unwrap()
-        .read_to_string(&mut text)
+        .json::<rep::Instances>()
         .unwrap();
-    let response = serde_json::from_str::<rep::Instances>(&text).unwrap();
     return response.instances;
 }
 
