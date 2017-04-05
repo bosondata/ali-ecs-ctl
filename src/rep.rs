@@ -36,9 +36,9 @@ fn deserialize_single_key_map<V, D>(d: D) -> Result<V, D::Error>
     where D: Deserializer,
           V: Deserialize
 {
-    struct SingleKeyMapToVecVisitor<V: Deserialize>(PhantomData<V>);
+    struct SingleKeyMapVisitor<V: Deserialize>(PhantomData<V>);
 
-    impl<V> de::Visitor for SingleKeyMapToVecVisitor<V>
+    impl<V> de::Visitor for SingleKeyMapVisitor<V>
         where V: Deserialize
     {
         type Value = V;
@@ -58,7 +58,7 @@ fn deserialize_single_key_map<V, D>(d: D) -> Result<V, D::Error>
             Err(de::Error::custom("No single key value in map"))
         }
     }
-    d.deserialize_map(SingleKeyMapToVecVisitor(PhantomData))
+    d.deserialize_map(SingleKeyMapVisitor(PhantomData))
 }
 
 #[cfg(test)]
