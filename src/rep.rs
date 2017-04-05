@@ -8,7 +8,7 @@ pub struct Instance {
     pub id: String,
     #[serde(rename = "InstanceName")]
     pub name: String,
-    #[serde(deserialize_with = "deserialize_single_key_map_to_vec")]
+    #[serde(deserialize_with = "deserialize_single_key_map")]
     #[serde(rename = "PublicIpAddress")]
     pub public_ip_address: Vec<String>,
 }
@@ -21,7 +21,7 @@ impl Instance {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Instances {
-    #[serde(deserialize_with = "deserialize_single_key_map_to_vec")]
+    #[serde(deserialize_with = "deserialize_single_key_map")]
     #[serde(rename = "Instances")]
     pub instances: Vec<Instance>,
     #[serde(rename = "TotalCount")]
@@ -32,7 +32,7 @@ pub struct Instances {
     pub size: usize,
 }
 
-fn deserialize_single_key_map_to_vec<V, D>(d: D) -> Result<Vec<V>, D::Error>
+fn deserialize_single_key_map<V, D>(d: D) -> Result<V, D::Error>
     where D: Deserializer,
           V: Deserialize
 {
@@ -41,26 +41,21 @@ fn deserialize_single_key_map_to_vec<V, D>(d: D) -> Result<Vec<V>, D::Error>
     impl<V> de::Visitor for SingleKeyMapToVecVisitor<V>
         where V: Deserialize
     {
-        type Value = Vec<V>;
+        type Value = V;
 
         fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
             formatter.write_str("a map")
         }
 
         #[inline]
-        fn visit_unit<E>(self) -> Result<Vec<V>, E> {
-            Ok(Vec::new())
-        }
-
-        #[inline]
-        fn visit_map<T>(self, mut visitor: T) -> Result<Vec<V>, T::Error>
+        fn visit_map<T>(self, mut visitor: T) -> Result<V, T::Error>
             where T: de::MapVisitor
         {
-            let item: Option<(String, Vec<V>)> = visitor.visit()?;
+            let item: Option<(String, V)> = visitor.visit()?;
             if let Some((_, value)) = item {
                 return Ok(value);
             }
-            Ok(Vec::new())
+            Err(de::Error::custom("No single key value in map"))
         }
     }
     d.deserialize_map(SingleKeyMapToVecVisitor(PhantomData))
