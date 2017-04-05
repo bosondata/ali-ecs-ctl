@@ -94,24 +94,22 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
     return signed_params;
 }
 
-/*
-fn describe_region() {
+fn describe_regions() {
     let mut url = Url::parse(ALIYUN_API).unwrap();
     let params = signature(vec![
         ("Action".to_string(), "DescribeRegions".to_string()),
         ("RegionId".to_string(), "cn-hangzhou".to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
-    let mut text = String::new();
-    let res = client.get(url)
+    let response = client.get(url)
         .send()
         .unwrap()
-        .read_to_string(&mut text)
+        .json::<rep::Regions>()
         .unwrap();
-    let data = Json::from_str(&text).unwrap();
-    println!("{}", data);
+    for region in &response.regions {
+        println!("{}\t{}", region.id, region.name);
+    }
 }
- */
 
 fn ping_ok(ip: &str) -> bool {
     let output = Command::new("ping")
@@ -152,14 +150,12 @@ fn get_instances() -> Vec<rep::Instance> {
                                 ("RegionId".to_string(), "cn-beijing".to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
-    let mut text = String::new();
-    client
+    let response = client
         .get(url)
         .send()
         .unwrap()
-        .read_to_string(&mut text)
+        .json::<rep::Instances>()
         .unwrap();
-    let response = serde_json::from_str::<rep::Instances>(&text).unwrap();
     return response.instances;
 }
 
@@ -277,6 +273,9 @@ fn main() {
                             instance.ip()
                 );
             }
+        }
+        "regions" => {
+            describe_regions();
         }
         _ => println!("Unknown command."),
     }

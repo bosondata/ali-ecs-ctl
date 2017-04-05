@@ -32,6 +32,21 @@ pub struct Instances {
     pub size: usize,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct Region {
+    #[serde(rename = "RegionId")]
+    pub id: String,
+    #[serde(rename = "LocalName")]
+    pub name: String
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct Regions {
+    #[serde(deserialize_with = "deserialize_single_key_map")]
+    #[serde(rename = "Regions")]
+    pub regions: Vec<Region>,
+}
+
 fn deserialize_single_key_map<V, D>(d: D) -> Result<V, D::Error>
     where D: Deserializer,
           V: Deserialize
