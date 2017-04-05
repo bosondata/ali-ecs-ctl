@@ -9,11 +9,14 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 extern crate hmacsha1;
+extern crate scoped_pool;
+extern crate num_cpus;
 
 mod rep;
 
 use std::io::Read;
 use std::env;
+use std::sync::{Arc, Mutex};
 use std::process::Command;
 use std::collections::HashMap;
 use url::Url;
@@ -22,6 +25,7 @@ use chrono::prelude::*;
 use uuid::Uuid;
 use hmacsha1::hmac_sha1;
 use clap::{Arg, App};
+use scoped_pool::Pool as ThreadPool;
 
 static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";
 static HTTP_GET: &'static str = "GET";
@@ -178,22 +182,34 @@ fn reboot_instance(instance_id: &str) -> bool {
     return false;
 }
 
-fn reboot_unresponded_instances(check_func: &Fn(&str) -> bool) {
+fn reboot_unresponded_instances<F>(check_func: &F)
+    where F: Fn(&str) -> bool,
+          F: Sync + Send
+{
     let instance_info = get_instances();
     let cnt = instance_info.len();
-    let mut rebooted_instances = vec![];
-    for instance in instance_info {
-        let ip = instance.ip();
-        if !check_func(ip) {
-            println!("{} no ping/ssh respond, sending reboot(force) request.", ip);
-            let request_sended = reboot_instance(&instance.id);
-            if request_sended {
-                rebooted_instances.push(String::from(instance.ip()).clone());
-            }
-        } else {
-            println!("{} is OK.", ip);
+    let rebooted_instances = Arc::new(Mutex::new(Vec::new()));
+    let pool = ThreadPool::new(num_cpus::get() * 5);
+    pool.scoped(|scope| {
+        for instance in instance_info {
+            let rebooted_instances = rebooted_instances.clone();
+            scope.execute(move || {
+                let ip = instance.ip();
+                if !check_func(ip) {
+                    println!("{} no ping/ssh respond, sending reboot(force) request.", ip);
+                    let request_sended = reboot_instance(&instance.id);
+                    if request_sended {
+                        let mut rebooted_instances = rebooted_instances.lock().unwrap();
+                        rebooted_instances.push(ip.to_string());
+                    }
+                } else {
+                    println!("{} is OK.", ip);
+                }
+            });
         }
-    }
+    });
+    let rebooted_instances = rebooted_instances.clone();
+    let rebooted_instances = rebooted_instances.lock().unwrap();
     let mut msg = format!("{} instance(s) checked, {} rebooted.", cnt, rebooted_instances.len());
     println!("{}", msg);
     if rebooted_instances.len() > 0 {
@@ -205,9 +221,14 @@ fn reboot_unresponded_instances(check_func: &Fn(&str) -> bool) {
 fn reboot_all() {
     let instance_info = get_instances();
     let cnt = instance_info.len();
-    for instance in instance_info {
-        reboot_instance(&instance.id);
-    }
+    let pool = ThreadPool::new(num_cpus::get() * 5);
+    pool.scoped(|scope| {
+        for instance in instance_info {
+            scope.execute(move || {
+                reboot_instance(&instance.id);
+            });
+        }
+    });
     let msg = format!("{} instance(s) reboot(force) request sended!", cnt);
     println!("{}", msg);
     notify_on_slack(&msg);
