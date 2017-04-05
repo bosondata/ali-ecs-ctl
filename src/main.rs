@@ -82,8 +82,7 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
     return signed_params;
 }
 
-/*
-fn describe_region() {
+fn describe_regions() {
     let mut url = Url::parse(ALIYUN_API).unwrap();
     let params = signature(vec![
         ("Action".to_string(), "DescribeRegions".to_string()),
@@ -91,15 +90,16 @@ fn describe_region() {
     url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
     let mut text = String::new();
-    let res = client.get(url)
+    client.get(url)
         .send()
         .unwrap()
         .read_to_string(&mut text)
         .unwrap();
-    let data = Json::from_str(&text).unwrap();
-    println!("{}", data);
+    let response = serde_json::from_str::<rep::Regions>(&text).unwrap();
+    for region in &response.regions {
+        println!("{}\t{}", region.id, region.name);
+    }
 }
- */
 
 fn ping_ok(ip: &str) -> bool {
     let output = Command::new("ping")
@@ -251,6 +251,9 @@ fn main() {
                             instance.ip()
                 );
             }
+        }
+        "regions" => {
+            describe_regions();
         }
         _ => println!("Unknown command."),
     }
