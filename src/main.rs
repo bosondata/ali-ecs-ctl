@@ -8,8 +8,8 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate hmacsha1;
 
-mod hmac_sha1;
 mod rep;
 
 use std::io::Read;
@@ -19,7 +19,7 @@ use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
 use uuid::Uuid;
-use hmac_sha1::hmac_sha1;
+use hmacsha1::hmac_sha1;
 use clap::{Arg, App};
 
 static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";

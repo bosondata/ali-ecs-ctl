@@ -7,20 +7,17 @@ version = "0.4.0"
 base64 = "0.4"
 chrono = "0.3"
 clap = "2.22"
+hmac-sha1 = "0.1"
 hyper = "0.10"
 reqwest = "0.5"
 serde = "0.9"
 serde_derive = "0.9"
 serde_json = "0.9"
-sha1 = "0.2"
 url = "1.4"
 
 [dependencies.uuid]
 features = ["v4"]
 version = "0.4"
-
-[dev-dependencies]
-hex = "0.2"
 
 [features]
 unstable = []
