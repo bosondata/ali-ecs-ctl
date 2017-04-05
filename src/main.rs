@@ -15,6 +15,7 @@ mod rep;
 use std::io::Read;
 use std::env;
 use std::process::Command;
+use std::collections::HashMap;
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
@@ -24,6 +25,17 @@ use clap::{Arg, App};
 
 static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";
 static HTTP_GET: &'static str = "GET";
+
+fn notify_on_slack(message: &str) {
+    if let Ok(slack_webhook_url) = env::var("SLACK_WEBHOOK_URL") {
+        let body: HashMap<&str, &str> = [("text", message)].iter().cloned().collect();
+        let client = reqwest::Client::new().unwrap();
+        let _ = client.post(&slack_webhook_url)
+            .json(&body)
+            .send()
+            .unwrap();
+    }
+}
 
 fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
     /*
@@ -151,7 +163,7 @@ fn get_instances() -> Vec<rep::Instance> {
     return response.instances;
 }
 
-fn reboot_instance(instance_id: &str) {
+fn reboot_instance(instance_id: &str) -> bool {
     let mut url = Url::parse(ALIYUN_API).unwrap();
     let params = signature(vec![("Action".to_string(), "RebootInstance".to_string()),
                                 ("InstanceId".to_string(), instance_id.to_string()),
@@ -163,26 +175,35 @@ fn reboot_instance(instance_id: &str) {
     res.read_to_string(&mut response_body).unwrap();
     if res.status() == &reqwest::StatusCode::Ok {
         println!("Reboot request to {} sended!", instance_id);
+        return true;
     } else {
         println!("Reboot request fail with status {:?}", res.status());
     }
+    return false;
 }
 
 fn reboot_unresponded_instances(check_func: &Fn(&str) -> bool) {
     let instance_info = get_instances();
     let cnt = instance_info.len();
-    let mut reboot_cnt = 0;
+    let mut rebooted_instances = vec![];
     for instance in instance_info {
         let ip = instance.ip();
         if !check_func(ip) {
             println!("{} no ping/ssh respond, sending reboot(force) request.", ip);
-            reboot_instance(&instance.id);
-            reboot_cnt += 1;
+            let request_sended = reboot_instance(&instance.id);
+            if request_sended {
+                rebooted_instances.push(String::from(instance.ip()).clone());
+            }
         } else {
             println!("{} is OK.", ip);
         }
     }
-    println!("{} instance(s) checked, {} rebooted.", cnt, reboot_cnt);
+    let mut msg = format!("{} instance(s) checked, {} rebooted.", cnt, rebooted_instances.len());
+    println!("{}", msg);
+    if rebooted_instances.len() > 0 {
+        msg = vec![msg, "Rebooted:".to_string(), rebooted_instances.join("\n")].join("\n");
+    }
+    notify_on_slack(&msg);
 }
 
 fn reboot_all() {
@@ -191,13 +212,18 @@ fn reboot_all() {
     for instance in instance_info {
         reboot_instance(&instance.id);
     }
-    println!("{} instance(s) reboot(force) request sended!", cnt);
+    let msg = format!("{} instance(s) reboot(force) request sended!", cnt);
+    println!("{}", msg);
+    notify_on_slack(&msg);
 }
 
 fn reboot_single(target_ip: &str) {
     for instance in get_instances() {
         if instance.ip() == target_ip {
-            reboot_instance(&instance.id);
+            let request_sended = reboot_instance(&instance.id);
+            if request_sended {
+                notify_on_slack(&format!("reboot request for {} sended!", instance.ip()));
+            }
             return;
         }
     }
