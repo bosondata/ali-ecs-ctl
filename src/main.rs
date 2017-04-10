@@ -137,6 +137,9 @@ fn send_statsd_metrics(monitor_info: &[(String, rep::MonitorData)]) {
             pipe.gauge(&format!("{}.internet_rx", ip), info.1.internet_rx as f64);
             pipe.gauge(&format!("{}.internet_tx", ip), info.1.internet_tx as f64);
             pipe.gauge(&format!("{}.internet_bandwidth", ip), info.1.internet_bandwidth as f64);
+            pipe.gauge(&format!("{}.intranet_rx", ip), info.1.intranet_rx as f64);
+            pipe.gauge(&format!("{}.intranet_tx", ip), info.1.intranet_tx as f64);
+            pipe.gauge(&format!("{}.intranet_bandwidth", ip), info.1.intranet_bandwidth as f64);
             pipe.gauge(&format!("{}.iops_read", ip), info.1.iops_read as f64);
             pipe.gauge(&format!("{}.iops_write", ip), info.1.iops_write as f64);
             pipe.gauge(&format!("{}.bps_read", ip), info.1.bps_read as f64);
