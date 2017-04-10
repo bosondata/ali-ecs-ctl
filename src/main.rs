@@ -22,6 +22,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use std::process::Command;
 use std::collections::HashMap;
+use std::iter::FromIterator;
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
@@ -115,20 +116,17 @@ fn describe_monitor_data_by_instance(instance_id: &str, start_time: &str, end_ti
         ("EndTime".to_string(), end_time.to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
     let client = reqwest::Client::new().unwrap();
-
-    let mut response_body = String::new();
-    let mut response = client.get(url)
+    let response = client.get(url)
         .send()
-        .unwrap();
-    response.read_to_string(&mut response_body).unwrap();
-    let json_obj = serde_json::from_str::<rep::MonitorResponse>(&response_body);
-    match json_obj {
-        Ok(_) => Ok(json_obj.unwrap().monitor_data.last().unwrap().clone()),
-        Err(_) => Err(format!("{:?}", json_obj.err())),
+        .unwrap()
+        .json::<rep::MonitorResponse>();
+    match response {
+        Ok(_) => Ok(response.unwrap().monitor_data.last().unwrap().clone()),
+        Err(_) => Err(format!("{:?}", response.err())),
     }
 }
 
-fn send_statsd_metrics(monitor_info: &Vec<(String, rep::MonitorData)>) {
+fn send_statsd_metrics(monitor_info: &[(String, rep::MonitorData)]) {
     //TODO: Only IP address supported in STATSD_URL
     if let Ok(statsd_url) = env::var("STATSD_URL") {
         let mut client = StatsdClient::new(&statsd_url, "aliyun.monitor").unwrap();
@@ -148,7 +146,7 @@ fn send_statsd_metrics(monitor_info: &Vec<(String, rep::MonitorData)>) {
     }
 }
 
-fn show_monitor_data_table(monitor_info: &Vec<(String, rep::MonitorData)>) {
+fn show_monitor_data_table(monitor_info: &[(String, rep::MonitorData)]) {
     let mut table = Table::new();
     table.add_row(row!["IP", "ID", "CPU(%)", "InternetRX(kb)", "InternetTX(kb)", "InternetBandwidth(kb/s)", "IOPSRead/s", "IOPSWrite/s"]);
     for info in monitor_info.iter() {
@@ -167,7 +165,7 @@ fn show_monitor_data_table(monitor_info: &Vec<(String, rep::MonitorData)>) {
 }
 
 fn describe_monitor_data() {
-    let current_time = &UTC::now();
+    let current_time = UTC::now();
     let end_time = &NaiveDateTime::from_timestamp(current_time.timestamp() - 30, 0);
     let start_time = &NaiveDateTime::from_timestamp(current_time.timestamp() - 150, 0);
     let monitor_info = Arc::new(Mutex::new(Vec::new()));
@@ -189,10 +187,7 @@ fn describe_monitor_data() {
     });
     let monitor_info = monitor_info.clone();
     let monitor_info = monitor_info.lock().unwrap();
-    let mut monitor_info_list = vec![];
-    for info in monitor_info.iter() {
-        monitor_info_list.push(info.clone());
-    }
+    let monitor_info_list = Vec::from_iter(monitor_info.clone().into_iter());
     // TODO need sort by a certain key (IP/CPU/IO)
     show_monitor_data_table(&monitor_info_list);
     send_statsd_metrics(&monitor_info_list);
