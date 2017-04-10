@@ -1,3 +1,5 @@
+#![recursion_limit = "1024"]
+
 extern crate reqwest;
 extern crate url;
 extern crate chrono;
@@ -14,7 +16,10 @@ extern crate num_cpus;
 #[macro_use]
 extern crate prettytable;
 extern crate statsd;
+#[macro_use]
+extern crate error_chain;
 
+mod errors;
 mod rep;
 
 use std::io::Read;
@@ -35,19 +40,22 @@ use prettytable::row::Row;
 use prettytable::cell::Cell;
 use statsd::Client as StatsdClient;
 
+use errors::*;
+
 static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";
 static TIME_FORMAT: &'static str = "%Y-%m-%dT%H:%M:%SZ";
 static HTTP_GET: &'static str = "GET";
 
-fn notify_on_slack(message: &str) {
+fn notify_on_slack(message: &str) -> Result<()> {
     if let Ok(slack_webhook_url) = env::var("SLACK_WEBHOOK_URL") {
         let body: HashMap<&str, &str> = [("text", message)].iter().cloned().collect();
-        let client = reqwest::Client::new().unwrap();
+        let client = reqwest::Client::new()?;
         let _ = client.post(&slack_webhook_url)
             .json(&body)
             .send()
-            .unwrap();
+            .map_err(|_| ErrorKind::StatsdError)?;
     }
+    Ok(())
 }
 
 fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
@@ -65,7 +73,7 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
      */
     let uuid_str: &str = &Uuid::new_v4().hyphenated().to_string();
     let ts: &str = &UTC::now().format(TIME_FORMAT).to_string();
-    let access_key_id: &str = &env::var("ALIYUN_ACCESS_KEY_ID").unwrap();
+    let access_key_id: &str = &env::var("ALIYUN_ACCESS_KEY_ID").expect("No ALIYUN_ACCESS_KEY_ID env var");
     let mut params: Vec<(String, String)> = vec![("Timestamp", ts),
                                                  ("Format", "json"),
                                                  ("AccessKeyId", access_key_id),
@@ -95,7 +103,7 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
                               .replace("%3A", "%253A")]
             .join("")
             .into_bytes();
-    let secret_bytes = vec![env::var("ALIYUN_SECRET").unwrap(), "&".to_string()]
+    let secret_bytes = vec![env::var("ALIYUN_SECRET").expect("No ALIYUN_SECRET env var"), "&".to_string()]
         .join("")
         .into_bytes();
     let signed = base64::encode(&hmac_sha1(&secret_bytes, &sign_bytes));
@@ -107,29 +115,26 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
     signed_params
 }
 
-fn describe_monitor_data_by_instance(instance_id: &str, start_time: &str, end_time: &str) -> Result<rep::MonitorData, String> {
-    let mut url = Url::parse(ALIYUN_API).unwrap();
+fn describe_monitor_data_by_instance(instance_id: &str, start_time: &str, end_time: &str) -> Result<rep::MonitorData> {
+    let mut url = Url::parse(ALIYUN_API)?;
     let params = signature(vec![
         ("Action".to_string(), "DescribeInstanceMonitorData".to_string()),
         ("InstanceId".to_string(), instance_id.to_string()),
         ("StartTime".to_string(), start_time.to_string()),
         ("EndTime".to_string(), end_time.to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
-    let client = reqwest::Client::new().unwrap();
+    let client = reqwest::Client::new()?;
     let response = client.get(url)
-        .send()
-        .unwrap()
+        .send()?
         .json::<rep::MonitorResponse>();
-    match response {
-        Ok(_) => Ok(response.unwrap().monitor_data.last().unwrap().clone()),
-        Err(_) => Err(format!("{:?}", response.err())),
-    }
+    response.map(|obj| obj.monitor_data.last().expect("No monitor data").clone())
+        .chain_err(|| "error describing instance monitor data")
 }
 
-fn send_statsd_metrics(monitor_info: &[(String, rep::MonitorData)]) {
+fn send_statsd_metrics(monitor_info: &[(String, rep::MonitorData)]) -> Result<()> {
     //TODO: Only IP address supported in STATSD_URL
     if let Ok(statsd_url) = env::var("STATSD_URL") {
-        let mut client = StatsdClient::new(&statsd_url, "aliyun.monitor").unwrap();
+        let mut client = StatsdClient::new(&statsd_url, "aliyun.monitor")?;
         let mut pipe = client.pipeline();
         for info in monitor_info.iter() {
             let ip = info.0.replace(".", "_");
@@ -147,6 +152,7 @@ fn send_statsd_metrics(monitor_info: &[(String, rep::MonitorData)]) {
         }
         pipe.send(&mut client);
     }
+    Ok(())
 }
 
 fn show_monitor_data_table(monitor_info: &[(String, rep::MonitorData)]) {
@@ -167,14 +173,15 @@ fn show_monitor_data_table(monitor_info: &[(String, rep::MonitorData)]) {
     table.printstd();
 }
 
-fn describe_monitor_data() {
+fn describe_monitor_data() -> Result<()> {
     let current_time = UTC::now();
-    let end_time = &NaiveDateTime::from_timestamp(current_time.timestamp() - 30, 0);
-    let start_time = &NaiveDateTime::from_timestamp(current_time.timestamp() - 150, 0);
+    let end_time = NaiveDateTime::from_timestamp(current_time.timestamp() - 30, 0);
+    let start_time = NaiveDateTime::from_timestamp(current_time.timestamp() - 150, 0);
     let monitor_info = Arc::new(Mutex::new(Vec::new()));
     let pool = ThreadPool::new(num_cpus::get() * 5);
+    let instances = get_instances()?;
     pool.scoped(|scope| {
-        for instance in get_instances() {
+        for instance in &instances {
             let monitor_info = monitor_info.clone();
             scope.execute(move || {
                 let monitor_data = describe_monitor_data_by_instance(
@@ -193,24 +200,24 @@ fn describe_monitor_data() {
     let monitor_info_list = Vec::from_iter(monitor_info.clone().into_iter());
     // TODO need sort by a certain key (IP/CPU/IO)
     show_monitor_data_table(&monitor_info_list);
-    send_statsd_metrics(&monitor_info_list);
+    send_statsd_metrics(&monitor_info_list)?;
+    Ok(())
 }
 
-fn describe_regions() {
-    let mut url = Url::parse(ALIYUN_API).unwrap();
+fn describe_regions() -> Result<()> {
+    let mut url = Url::parse(ALIYUN_API)?;
     let params = signature(vec![
         ("Action".to_string(), "DescribeRegions".to_string()),
         ("RegionId".to_string(), "cn-hangzhou".to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
-    let client = reqwest::Client::new().unwrap();
+    let client = reqwest::Client::new()?;
     let response = client.get(url)
-        .send()
-        .unwrap()
-        .json::<rep::Regions>()
-        .unwrap();
+        .send()?
+        .json::<rep::Regions>()?;
     for region in &response.regions {
         println!("{}\t{}", region.id, region.name);
     }
+    Ok(())
 }
 
 fn ping_ok(ip: &str) -> bool {
@@ -244,47 +251,45 @@ fn is_ssh_timeout(ip: &str) -> bool {
     true
 }
 
-fn get_instances() -> Vec<rep::Instance> {
-    let mut url = Url::parse(ALIYUN_API).unwrap();
+fn get_instances() -> Result<Vec<rep::Instance>> {
+    let mut url = Url::parse(ALIYUN_API)?;
     let params = signature(vec![("Action".to_string(), "DescribeInstances".to_string()),
                                 // TODO: max return size is 100, need pagination if we use 100+ instances.
                                 ("PageSize".to_string(), "100".to_string()),
                                 ("RegionId".to_string(), "cn-beijing".to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
-    let client = reqwest::Client::new().unwrap();
+    let client = reqwest::Client::new()?;
     let response = client
         .get(url)
-        .send()
-        .unwrap()
-        .json::<rep::Instances>()
-        .unwrap();
-    response.instances
+        .send()?
+        .json::<rep::Instances>()?;
+    Ok(response.instances)
 }
 
-fn reboot_instance(instance_id: &str) -> bool {
-    let mut url = Url::parse(ALIYUN_API).unwrap();
+fn reboot_instance(instance_id: &str) -> Result<bool> {
+    let mut url = Url::parse(ALIYUN_API)?;
     let params = signature(vec![("Action".to_string(), "RebootInstance".to_string()),
                                 ("InstanceId".to_string(), instance_id.to_string()),
                                 ("ForceStop".to_string(), "true".to_string())]);
     url.query_pairs_mut().extend_pairs(params.into_iter());
-    let client = reqwest::Client::new().unwrap();
+    let client = reqwest::Client::new()?;
     let mut response_body = String::new();
-    let mut res = client.get(url).send().unwrap();
-    res.read_to_string(&mut response_body).unwrap();
+    let mut res = client.get(url).send()?;
+    res.read_to_string(&mut response_body)?;
     if *res.status() == reqwest::StatusCode::Ok {
         println!("Reboot request to {} sended!", instance_id);
-        return true;
+        return Ok(true);
     } else {
         println!("Reboot request fail with status {:?}", res.status());
     }
-    false
+    Ok(false)
 }
 
-fn reboot_unresponded_instances<F>(check_func: &F)
+fn reboot_unresponded_instances<F>(check_func: &F) -> Result<()>
     where F: Fn(&str) -> bool,
           F: Sync + Send
 {
-    let instance_info = get_instances();
+    let instance_info = get_instances()?;
     let cnt = instance_info.len();
     let rebooted_instances = Arc::new(Mutex::new(Vec::new()));
     let pool = ThreadPool::new(num_cpus::get() * 5);
@@ -295,7 +300,7 @@ fn reboot_unresponded_instances<F>(check_func: &F)
                 let ip = instance.ip();
                 if !check_func(ip) {
                     println!("{} no ping/ssh respond, sending reboot(force) request.", ip);
-                    let request_sended = reboot_instance(&instance.id);
+                    let request_sended = reboot_instance(&instance.id).unwrap_or(false);
                     if request_sended {
                         let mut rebooted_instances = rebooted_instances.lock().unwrap();
                         rebooted_instances.push(ip.to_string());
@@ -312,37 +317,40 @@ fn reboot_unresponded_instances<F>(check_func: &F)
     println!("{}", msg);
     if rebooted_instances.len() > 0 {
         msg = vec![msg, "Rebooted:".to_string(), rebooted_instances.join("\n")].join("\n");
-        notify_on_slack(&msg);
+        notify_on_slack(&msg)?;
     }
+    Ok(())
 }
 
-fn reboot_all() {
-    let instance_info = get_instances();
+fn reboot_all() -> Result<()> {
+    let instance_info = get_instances()?;
     let cnt = instance_info.len();
     let pool = ThreadPool::new(num_cpus::get() * 5);
     pool.scoped(|scope| {
         for instance in instance_info {
             scope.execute(move || {
-                reboot_instance(&instance.id);
+                reboot_instance(&instance.id).unwrap_or(false);
             });
         }
     });
     let msg = format!("{} instance(s) reboot(force) request sended!", cnt);
     println!("{}", msg);
-    notify_on_slack(&msg);
+    notify_on_slack(&msg)?;
+    Ok(())
 }
 
-fn reboot_single(target_ip: &str) {
-    for instance in get_instances() {
+fn reboot_single(target_ip: &str) -> Result<()> {
+    for instance in get_instances()? {
         if instance.ip() == target_ip {
-            let request_sended = reboot_instance(&instance.id);
+            let request_sended = reboot_instance(&instance.id).unwrap_or(false);
             if request_sended {
-                notify_on_slack(&format!("reboot request for {} sended!", instance.ip()));
+                notify_on_slack(&format!("reboot request for {} sended!", instance.ip()))?;
             }
             break;
         }
     }
     println!("Instance with IP {} not found.", target_ip);
+    Ok(())
 }
 
 fn main() {
@@ -372,20 +380,20 @@ fn main() {
             let ip = matches.value_of("ip").unwrap_or("");
             if ip == "" {
                 match checker {
-                    "ssh" => reboot_unresponded_instances(&is_ssh_timeout),
-                    "ping" => reboot_unresponded_instances(&ping_ok),
-                    _ => println!("Unknown checker."),
+                    "ssh" => reboot_unresponded_instances(&is_ssh_timeout).expect("Reboot unresponded instances failed"),
+                    "ping" => reboot_unresponded_instances(&ping_ok).expect("Reboot unresponded instances failed"),
+                    _ => { println!("Unknown checker."); },
                 }
             } else {
-                reboot_single(ip);
+                reboot_single(ip).expect("Reboot instance failed");
             }
         }
         "rebootall" => {
             println!("Start reboot all nodes!");
-            reboot_all()
+            reboot_all().expect("Reboot all nodes failed");
         }
         "list" => {
-            for instance in &get_instances() {
+            for instance in &get_instances().expect("Get instances failed") {
                 println!("Id: {} Name: {} Public IP: {}",
                             instance.id,
                             instance.name,
@@ -394,11 +402,13 @@ fn main() {
             }
         }
         "regions" => {
-            describe_regions();
+            describe_regions().expect("Describe regions failed");
         }
         "monitor" => {
-            describe_monitor_data();
+            describe_monitor_data().expect("Describe monitor data failed");
         }
-        _ => println!("Unknown command."),
+        _ => {
+            println!("Unknown command.");
+        },
     }
 }
