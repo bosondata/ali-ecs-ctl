@@ -103,7 +103,7 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
         .map(|x| (x.0.to_string(), x.1.to_string()))
         .collect();
     signed_params.push(("Signature".to_string(), signed));
-    return signed_params;
+    signed_params
 }
 
 fn describe_monitor_data_by_instance(instance_id: &str, start_time: &str, end_time: &str) -> Result<rep::MonitorData, String> {
@@ -228,7 +228,7 @@ fn ping_ok(ip: &str) -> bool {
     if result.find("100% packet loss").is_some() {
         return false;
     }
-    return true;
+    true
 }
 
 fn is_ssh_timeout(ip: &str) -> bool {
@@ -243,7 +243,7 @@ fn is_ssh_timeout(ip: &str) -> bool {
     if result.find("Connection timed out").is_some() {
         return false;
     }
-    return true;
+    true
 }
 
 fn get_instances() -> Vec<rep::Instance> {
@@ -260,7 +260,7 @@ fn get_instances() -> Vec<rep::Instance> {
         .unwrap()
         .json::<rep::Instances>()
         .unwrap();
-    return response.instances;
+    response.instances
 }
 
 fn reboot_instance(instance_id: &str) -> bool {
@@ -273,13 +273,13 @@ fn reboot_instance(instance_id: &str) -> bool {
     let mut response_body = String::new();
     let mut res = client.get(url).send().unwrap();
     res.read_to_string(&mut response_body).unwrap();
-    if res.status() == &reqwest::StatusCode::Ok {
+    if *res.status() == reqwest::StatusCode::Ok {
         println!("Reboot request to {} sended!", instance_id);
         return true;
     } else {
         println!("Reboot request fail with status {:?}", res.status());
     }
-    return false;
+    false
 }
 
 fn reboot_unresponded_instances<F>(check_func: &F)
@@ -341,7 +341,7 @@ fn reboot_single(target_ip: &str) {
             if request_sended {
                 notify_on_slack(&format!("reboot request for {} sended!", instance.ip()));
             }
-            return;
+            break;
         }
     }
     println!("Instance with IP {} not found.", target_ip);
