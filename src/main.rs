@@ -312,8 +312,8 @@ fn reboot_unresponded_instances<F>(check_func: &F)
     println!("{}", msg);
     if rebooted_instances.len() > 0 {
         msg = vec![msg, "Rebooted:".to_string(), rebooted_instances.join("\n")].join("\n");
+        notify_on_slack(&msg);
     }
-    notify_on_slack(&msg);
 }
 
 fn reboot_all() {
