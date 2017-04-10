@@ -13,6 +13,7 @@ extern crate scoped_pool;
 extern crate num_cpus;
 #[macro_use]
 extern crate prettytable;
+extern crate statsd;
 
 mod rep;
 
@@ -31,6 +32,7 @@ use scoped_pool::Pool as ThreadPool;
 use prettytable::Table;
 use prettytable::row::Row;
 use prettytable::cell::Cell;
+use statsd::Client as StatsdClient;
 
 static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";
 static TIME_FORMAT: &'static str = "%Y-%m-%dT%H:%M:%SZ";
@@ -126,10 +128,30 @@ fn describe_monitor_data_by_instance(instance_id: &str, start_time: &str, end_ti
     }
 }
 
-fn show_monitor_data_table(monitor_info: Vec<(String, rep::MonitorData)>) {
+fn send_statsd_metrics(monitor_info: &Vec<(String, rep::MonitorData)>) {
+    //TODO: Only IP address supported in STATSD_URL
+    if let Ok(statsd_url) = env::var("STATSD_URL") {
+        let mut client = StatsdClient::new(&statsd_url, "aliyun.monitor").unwrap();
+        let mut pipe = client.pipeline();
+        for info in monitor_info.iter() {
+            let ip = info.0.replace(".", "_");
+            pipe.gauge(&format!("{}.cpu", ip), info.1.cpu as f64);
+            pipe.gauge(&format!("{}.internet_rx", ip), info.1.internet_rx as f64);
+            pipe.gauge(&format!("{}.internet_tx", ip), info.1.internet_tx as f64);
+            pipe.gauge(&format!("{}.internet_bandwidth", ip), info.1.internet_bandwidth as f64);
+            pipe.gauge(&format!("{}.iops_read", ip), info.1.iops_read as f64);
+            pipe.gauge(&format!("{}.iops_write", ip), info.1.iops_write as f64);
+            pipe.gauge(&format!("{}.bps_read", ip), info.1.bps_read as f64);
+            pipe.gauge(&format!("{}.bps_write", ip), info.1.bps_write as f64);
+        }
+        pipe.send(&mut client);
+    }
+}
+
+fn show_monitor_data_table(monitor_info: &Vec<(String, rep::MonitorData)>) {
     let mut table = Table::new();
     table.add_row(row!["IP", "ID", "CPU(%)", "InternetRX(kb)", "InternetTX(kb)", "InternetBandwidth(kb/s)", "IOPSRead/s", "IOPSWrite/s"]);
-    for info in monitor_info {
+    for info in monitor_info.iter() {
         table.add_row(
             Row::new(vec![Cell::new(&info.0),
                           Cell::new(&info.1.instance_id),
@@ -172,7 +194,8 @@ fn describe_monitor_data() {
         monitor_info_list.push(info.clone());
     }
     // TODO need sort by a certain key (IP/CPU/IO)
-    show_monitor_data_table(monitor_info_list);
+    show_monitor_data_table(&monitor_info_list);
+    send_statsd_metrics(&monitor_info_list);
 }
 
 fn describe_regions() {
