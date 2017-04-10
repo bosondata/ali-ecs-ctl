@@ -11,6 +11,9 @@ extern crate serde_json;
 extern crate hmacsha1;
 extern crate scoped_pool;
 extern crate num_cpus;
+#[macro_use]
+extern crate prettytable;
+extern crate statsd;
 
 mod rep;
 
@@ -19,6 +22,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 use std::process::Command;
 use std::collections::HashMap;
+use std::iter::FromIterator;
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
@@ -26,8 +30,13 @@ use uuid::Uuid;
 use hmacsha1::hmac_sha1;
 use clap::{Arg, App};
 use scoped_pool::Pool as ThreadPool;
+use prettytable::Table;
+use prettytable::row::Row;
+use prettytable::cell::Cell;
+use statsd::Client as StatsdClient;
 
 static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";
+static TIME_FORMAT: &'static str = "%Y-%m-%dT%H:%M:%SZ";
 static HTTP_GET: &'static str = "GET";
 
 fn notify_on_slack(message: &str) {
@@ -55,7 +64,7 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
     SignatureVersion=1.0
      */
     let uuid_str: &str = &Uuid::new_v4().hyphenated().to_string();
-    let ts: &str = &UTC::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let ts: &str = &UTC::now().format(TIME_FORMAT).to_string();
     let access_key_id: &str = &env::var("ALIYUN_ACCESS_KEY_ID").unwrap();
     let mut params: Vec<(String, String)> = vec![("Timestamp", ts),
                                                  ("Format", "json"),
@@ -96,6 +105,95 @@ fn signature(api_params: Vec<(String, String)>) -> Vec<(String, String)> {
         .collect();
     signed_params.push(("Signature".to_string(), signed));
     signed_params
+}
+
+fn describe_monitor_data_by_instance(instance_id: &str, start_time: &str, end_time: &str) -> Result<rep::MonitorData, String> {
+    let mut url = Url::parse(ALIYUN_API).unwrap();
+    let params = signature(vec![
+        ("Action".to_string(), "DescribeInstanceMonitorData".to_string()),
+        ("InstanceId".to_string(), instance_id.to_string()),
+        ("StartTime".to_string(), start_time.to_string()),
+        ("EndTime".to_string(), end_time.to_string())]);
+    url.query_pairs_mut().extend_pairs(params.into_iter());
+    let client = reqwest::Client::new().unwrap();
+    let response = client.get(url)
+        .send()
+        .unwrap()
+        .json::<rep::MonitorResponse>();
+    match response {
+        Ok(_) => Ok(response.unwrap().monitor_data.last().unwrap().clone()),
+        Err(_) => Err(format!("{:?}", response.err())),
+    }
+}
+
+fn send_statsd_metrics(monitor_info: &[(String, rep::MonitorData)]) {
+    //TODO: Only IP address supported in STATSD_URL
+    if let Ok(statsd_url) = env::var("STATSD_URL") {
+        let mut client = StatsdClient::new(&statsd_url, "aliyun.monitor").unwrap();
+        let mut pipe = client.pipeline();
+        for info in monitor_info.iter() {
+            let ip = info.0.replace(".", "_");
+            pipe.gauge(&format!("{}.cpu", ip), info.1.cpu as f64);
+            pipe.gauge(&format!("{}.internet_rx", ip), info.1.internet_rx as f64);
+            pipe.gauge(&format!("{}.internet_tx", ip), info.1.internet_tx as f64);
+            pipe.gauge(&format!("{}.internet_bandwidth", ip), info.1.internet_bandwidth as f64);
+            pipe.gauge(&format!("{}.intranet_rx", ip), info.1.intranet_rx as f64);
+            pipe.gauge(&format!("{}.intranet_tx", ip), info.1.intranet_tx as f64);
+            pipe.gauge(&format!("{}.intranet_bandwidth", ip), info.1.intranet_bandwidth as f64);
+            pipe.gauge(&format!("{}.iops_read", ip), info.1.iops_read as f64);
+            pipe.gauge(&format!("{}.iops_write", ip), info.1.iops_write as f64);
+            pipe.gauge(&format!("{}.bps_read", ip), info.1.bps_read as f64);
+            pipe.gauge(&format!("{}.bps_write", ip), info.1.bps_write as f64);
+        }
+        pipe.send(&mut client);
+    }
+}
+
+fn show_monitor_data_table(monitor_info: &[(String, rep::MonitorData)]) {
+    let mut table = Table::new();
+    table.add_row(row!["IP", "ID", "CPU(%)", "InternetRX(kb)", "InternetTX(kb)", "InternetBandwidth(kb/s)", "IOPSRead/s", "IOPSWrite/s"]);
+    for info in monitor_info.iter() {
+        table.add_row(
+            Row::new(vec![Cell::new(&info.0),
+                          Cell::new(&info.1.instance_id),
+                          Cell::new(&info.1.cpu.to_string()),
+                          Cell::new(&info.1.internet_rx.to_string()),
+                          Cell::new(&info.1.internet_tx.to_string()),
+                          Cell::new(&info.1.internet_bandwidth.to_string()),
+                          Cell::new(&info.1.iops_read.to_string()),
+                          Cell::new(&info.1.iops_write.to_string()),
+            ]));
+    }
+    table.printstd();
+}
+
+fn describe_monitor_data() {
+    let current_time = UTC::now();
+    let end_time = &NaiveDateTime::from_timestamp(current_time.timestamp() - 30, 0);
+    let start_time = &NaiveDateTime::from_timestamp(current_time.timestamp() - 150, 0);
+    let monitor_info = Arc::new(Mutex::new(Vec::new()));
+    let pool = ThreadPool::new(num_cpus::get() * 5);
+    pool.scoped(|scope| {
+        for instance in get_instances() {
+            let monitor_info = monitor_info.clone();
+            scope.execute(move || {
+                let monitor_data = describe_monitor_data_by_instance(
+                    &instance.id,
+                    &start_time.format(TIME_FORMAT).to_string(),
+                    &end_time.format(TIME_FORMAT).to_string());
+                if monitor_data.is_ok() {
+                    let mut monitor_info = monitor_info.lock().unwrap();
+                    monitor_info.push((instance.ip().to_string(), monitor_data.unwrap()));
+                }
+            });
+        }
+    });
+    let monitor_info = monitor_info.clone();
+    let monitor_info = monitor_info.lock().unwrap();
+    let monitor_info_list = Vec::from_iter(monitor_info.clone().into_iter());
+    // TODO need sort by a certain key (IP/CPU/IO)
+    show_monitor_data_table(&monitor_info_list);
+    send_statsd_metrics(&monitor_info_list);
 }
 
 fn describe_regions() {
@@ -214,8 +312,8 @@ fn reboot_unresponded_instances<F>(check_func: &F)
     println!("{}", msg);
     if rebooted_instances.len() > 0 {
         msg = vec![msg, "Rebooted:".to_string(), rebooted_instances.join("\n")].join("\n");
+        notify_on_slack(&msg);
     }
-    notify_on_slack(&msg);
 }
 
 fn reboot_all() {
@@ -252,7 +350,7 @@ fn main() {
         .version(env!("CARGO_PKG_VERSION"))
         .about("A cli tool for control(rebool only for now) Aliyun ECS instances.")
         .arg(Arg::with_name("COMMAND")
-                 .help("command to run, choices: reboot/rebootall/list")
+                 .help("command to run, choices: reboot/rebootall/list/regions/monitor")
                  .required(true)
                  .index(1))
         .arg(Arg::with_name("checker")
@@ -297,6 +395,9 @@ fn main() {
         }
         "regions" => {
             describe_regions();
+        }
+        "monitor" => {
+            describe_monitor_data();
         }
         _ => println!("Unknown command."),
     }

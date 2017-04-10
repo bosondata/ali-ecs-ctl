@@ -47,6 +47,45 @@ pub struct Regions {
     pub regions: Vec<Region>,
 }
 
+#[derive(Debug, Deserialize, Clone)]
+pub struct MonitorData {
+    #[serde(rename = "InstanceId")]
+    pub instance_id: String,
+    #[serde(rename = "CPU")]
+    pub cpu: u8,
+    #[serde(rename = "IntranetRX")]
+    pub intranet_rx: u32,
+    #[serde(rename = "IntranetTX")]
+    pub intranet_tx: u32,
+    #[serde(rename = "IntranetBandwidth")]
+    pub intranet_bandwidth: u32,
+    #[serde(rename = "InternetRX")]
+    pub internet_rx: u32,
+    #[serde(rename = "InternetTX")]
+    pub internet_tx: u32,
+    #[serde(rename = "InternetBandwidth")]
+    pub internet_bandwidth: u32,
+    #[serde(rename = "IOPSRead")]
+    pub iops_read: u32,
+    #[serde(rename = "IOPSWrite")]
+    pub iops_write: u32,
+    #[serde(rename = "BPSRead")]
+    pub bps_read: u32,
+    #[serde(rename = "BPSWrite")]
+    pub bps_write: u32,
+    #[serde(rename = "TimeStamp")]
+    pub timestamp: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct MonitorResponse {
+    #[serde(rename = "RequestId")]
+    pub request_id: String,
+    #[serde(deserialize_with = "deserialize_single_key_map")]
+    #[serde(rename = "MonitorData")]
+    pub monitor_data: Vec<MonitorData>,
+}
+
 fn deserialize_single_key_map<V, D>(d: D) -> Result<V, D::Error>
     where D: Deserializer,
           V: Deserialize

@@ -16,10 +16,16 @@ serde = "0.9"
 serde_derive = "0.9"
 serde_json = "0.9"
 url = "1.4"
+statsd = "0.7.0"
 
 [dependencies.uuid]
 features = ["v4"]
 version = "0.4"
+
+[dependencies.prettytable-rs]
+default-features = false
+features = ["win_crlf"]
+version = "0.6"
 
 [features]
 unstable = []
