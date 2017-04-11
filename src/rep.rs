@@ -37,7 +37,7 @@ pub struct Region {
     #[serde(rename = "RegionId")]
     pub id: String,
     #[serde(rename = "LocalName")]
-    pub name: String
+    pub name: String,
 }
 
 #[derive(Debug, Deserialize, Clone)]
