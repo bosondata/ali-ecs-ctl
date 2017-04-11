@@ -52,8 +52,7 @@ fn notify_on_slack(message: &str) -> Result<()> {
         let client = reqwest::Client::new()?;
         let _ = client.post(&slack_webhook_url)
             .json(&body)
-            .send()
-            .map_err(|_| ErrorKind::StatsdError)?;
+            .send()?;
     }
     Ok(())
 }
