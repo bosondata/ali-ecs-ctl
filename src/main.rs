@@ -112,7 +112,9 @@ impl AliyunECSController {
         Ok(())
     }
 
-    fn signature(&self, api_params: Vec<(String, String)>) -> Vec<(String, String)> {
+    fn signature<T>(&self, api_params: Vec<(T, T)>) -> Vec<(String, String)>
+        where T: Into<String>
+    {
         /*
         Aliyun API basic params sample:
         http://ecs.aliyuncs.com/?
@@ -137,15 +139,14 @@ impl AliyunECSController {
                 .iter()
                 .map(|x| (x.0.to_string(), x.1.to_string()))
                 .collect();
-        params.extend(api_params);
+        params.extend(api_params.into_iter().map(|x| (x.0.into(), x.1.into())));
         params.sort();
         let mut sign_params: Vec<String> = Vec::with_capacity(params.len());
         sign_params.extend(params
                                .iter()
                                .map(|param| vec![param.0.clone(), "=".to_string(), param.1.clone()].join("")));
         let string_to_sign = sign_params.join("&");
-        let mut string_to_sign_percent_encoded = String::new();
-        string_to_sign_percent_encoded.extend(utf8_percent_encode(&string_to_sign, USERINFO_ENCODE_SET));
+        let string_to_sign_percent_encoded = String::from_iter(utf8_percent_encode(&string_to_sign, USERINFO_ENCODE_SET));
         let sign_bytes = vec![HTTP_GET.to_string(),
                               "&%2F&".to_string(),
                               string_to_sign_percent_encoded
@@ -174,10 +175,10 @@ impl AliyunECSController {
                                          end_time: &str)
                                          -> Result<rep::MonitorData> {
         let mut url = Url::parse(ALIYUN_API)?;
-        let params = self.signature(vec![("Action".to_string(), "DescribeInstanceMonitorData".to_string()),
-                                         ("InstanceId".to_string(), instance_id.to_string()),
-                                         ("StartTime".to_string(), start_time.to_string()),
-                                         ("EndTime".to_string(), end_time.to_string())]);
+        let params = self.signature(vec![("Action", "DescribeInstanceMonitorData"),
+                                         ("InstanceId", instance_id),
+                                         ("StartTime", start_time),
+                                         ("EndTime", end_time)]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
             .get(url)
@@ -221,8 +222,8 @@ impl AliyunECSController {
 
     fn describe_regions(&self) -> Result<()> {
         let mut url = Url::parse(ALIYUN_API)?;
-        let params = self.signature(vec![("Action".to_string(), "DescribeRegions".to_string()),
-                                         ("RegionId".to_string(), "cn-hangzhou".to_string())]);
+        let params = self.signature(vec![("Action", "DescribeRegions"),
+                                         ("RegionId", "cn-hangzhou")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client.get(url).send()?.json::<rep::Regions>()?;
         for region in &response.regions {
@@ -233,10 +234,10 @@ impl AliyunECSController {
 
     fn get_instances(&self) -> Result<Vec<rep::Instance>> {
         let mut url = Url::parse(ALIYUN_API)?;
-        let params = self.signature(vec![("Action".to_string(), "DescribeInstances".to_string()),
+        let params = self.signature(vec![("Action", "DescribeInstances"),
                                          // TODO: max return size is 100, need pagination if we use 100+ instances.
-                                         ("PageSize".to_string(), "100".to_string()),
-                                         ("RegionId".to_string(), "cn-beijing".to_string())]);
+                                         ("PageSize", "100"),
+                                         ("RegionId", "cn-beijing")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
             .get(url)
@@ -247,9 +248,9 @@ impl AliyunECSController {
 
     fn reboot_instance(&self, instance_id: &str) -> Result<bool> {
         let mut url = Url::parse(ALIYUN_API)?;
-        let params = self.signature(vec![("Action".to_string(), "RebootInstance".to_string()),
-                                         ("InstanceId".to_string(), instance_id.to_string()),
-                                         ("ForceStop".to_string(), "true".to_string())]);
+        let params = self.signature(vec![("Action", "RebootInstance"),
+                                         ("InstanceId", instance_id),
+                                         ("ForceStop", "true")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let mut response_body = String::new();
         let mut res = self.client.get(url).send()?;
