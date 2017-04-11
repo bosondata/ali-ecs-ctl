@@ -369,16 +369,16 @@ fn ping_ok(ip: &str) -> bool {
     result.find("100% packet loss").is_none()
 }
 
-fn is_ssh_timeout(ip: &str) -> bool {
+fn is_ssh_ok(ip: &str) -> bool {
     let output = Command::new("ssh")
         .arg(ip)
         .arg("-o ConnectTimeout=5")
         .arg("-T")
         .output()
-        .expect("failed to execute ping");
+        .expect("failed to execute ssh");
 
     let result = String::from_utf8_lossy(&output.stderr);
-    result.find("Connection timed out").is_some()
+    result.find("Connection timed out").is_none()
 }
 
 fn main() {
@@ -411,7 +411,7 @@ fn main() {
                 match checker {
                     "ssh" => {
                         ecs_ctl
-                            .reboot_unresponded_instances(&is_ssh_timeout)
+                            .reboot_unresponded_instances(&is_ssh_ok)
                             .expect("Reboot unresponded instances failed")
                     }
                     "ping" => {
