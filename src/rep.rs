@@ -1,6 +1,6 @@
 use std::fmt;
 use std::marker::PhantomData;
-use serde::de::{self, Deserialize, Deserializer};
+use serde::de::{self, Deserializer, DeserializeOwned};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Instance {
@@ -86,14 +86,14 @@ pub struct MonitorResponse {
     pub monitor_data: Vec<MonitorData>,
 }
 
-fn deserialize_single_key_map<V, D>(d: D) -> Result<V, D::Error>
-    where D: Deserializer,
-          V: Deserialize
+fn deserialize_single_key_map<'de, V, D>(d: D) -> Result<V, D::Error>
+    where D: Deserializer<'de>,
+          V: DeserializeOwned
 {
-    struct SingleKeyMapVisitor<V: Deserialize>(PhantomData<V>);
+    struct SingleKeyMapVisitor<V: DeserializeOwned>(PhantomData<V>);
 
-    impl<V> de::Visitor for SingleKeyMapVisitor<V>
-        where V: Deserialize
+    impl<'de, V> de::Visitor<'de> for SingleKeyMapVisitor<V>
+        where V: DeserializeOwned
     {
         type Value = V;
 
@@ -103,9 +103,9 @@ fn deserialize_single_key_map<V, D>(d: D) -> Result<V, D::Error>
 
         #[inline]
         fn visit_map<T>(self, mut visitor: T) -> Result<V, T::Error>
-            where T: de::MapVisitor
+            where T: de::MapAccess<'de>
         {
-            let item: Option<(String, V)> = visitor.visit()?;
+            let item: Option<(String, V)> = visitor.next_entry()?;
             if let Some((_, value)) = item {
                 return Ok(value);
             }
