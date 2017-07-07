@@ -22,7 +22,6 @@ extern crate error_chain;
 mod errors;
 mod rep;
 
-use std::io::Read;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::process::Command;
@@ -251,9 +250,7 @@ impl AliyunECSController {
         let params = self.signature(vec![("Action", "StartInstance"),
                                          ("InstanceId", instance_id)]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let mut response_body = String::new();
-        let mut res = self.client.get(url).send()?;
-        res.read_to_string(&mut response_body)?;
+        let res = self.client.get(url).send()?;
         if *res.status() == reqwest::StatusCode::Ok {
             println!("Boot request to {} sended!", instance_id);
             return Ok(true);
@@ -269,9 +266,7 @@ impl AliyunECSController {
                                          ("InstanceId", instance_id),
                                          ("ForceStop", "true")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let mut response_body = String::new();
-        let mut res = self.client.get(url).send()?;
-        res.read_to_string(&mut response_body)?;
+        let res = self.client.get(url).send()?;
         if *res.status() == reqwest::StatusCode::Ok {
             println!("Reboot request to {} sended!", instance_id);
             return Ok(true);
