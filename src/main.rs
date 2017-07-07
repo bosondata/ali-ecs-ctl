@@ -246,6 +246,23 @@ impl AliyunECSController {
         Ok(response.instances)
     }
 
+    fn boot_instance(&self, instance_id: &str) -> Result<bool> {
+        let mut url = Url::parse(ALIYUN_API)?;
+        let params = self.signature(vec![("Action", "StartInstance"),
+                                         ("InstanceId", instance_id)]);
+        url.query_pairs_mut().extend_pairs(params.into_iter());
+        let mut response_body = String::new();
+        let mut res = self.client.get(url).send()?;
+        res.read_to_string(&mut response_body)?;
+        if *res.status() == reqwest::StatusCode::Ok {
+            println!("Boot request to {} sended!", instance_id);
+            return Ok(true);
+        } else {
+            println!("Boot request fail with status {:?}", res.status());
+        }
+        Ok(false)
+    }
+
     fn reboot_instance(&self, instance_id: &str) -> Result<bool> {
         let mut url = Url::parse(ALIYUN_API)?;
         let params = self.signature(vec![("Action", "RebootInstance"),
@@ -331,6 +348,21 @@ impl AliyunECSController {
         println!("Instance with IP {} not found.", target_ip);
         Ok(())
     }
+
+    fn boot_single(&self, target_ip: &str) -> Result<()> {
+        for instance in self.get_instances()? {
+            if instance.ip() == target_ip {
+                let request_sended = self.boot_instance(&instance.id).unwrap_or(false);
+                if request_sended {
+                    self.notify_on_slack(&format!("boot request for {} sended!", instance.ip()))?;
+                }
+                break;
+            }
+        }
+        println!("Instance with IP {} not found.", target_ip);
+        Ok(())
+    }
+
 }
 
 fn show_monitor_data_table(monitor_info: &[(String, rep::MonitorData)]) {
@@ -387,7 +419,7 @@ fn main() {
         .version(env!("CARGO_PKG_VERSION"))
         .about("A cli tool for control(rebool only for now) Aliyun ECS instances.")
         .arg(Arg::with_name("COMMAND")
-                 .help("command to run, choices: reboot/rebootall/list/regions/monitor")
+                 .help("command to run, choices: boot/reboot/rebootall/list/regions/monitor")
                  .required(true)
                  .index(1))
         .arg(Arg::with_name("checker")
@@ -405,6 +437,16 @@ fn main() {
     let cmd = matches.value_of("COMMAND").unwrap();
     let ecs_ctl = AliyunECSController::from_envvar();
     match cmd {
+        "boot" => {
+            let ip = matches.value_of("ip").unwrap_or("");
+            if ip != "" {
+                ecs_ctl
+                    .boot_single(ip)
+                    .expect("Boot instance failed");
+            } else {
+                println!("Please provide instance IP.");
+            }
+        }
         "reboot" => {
             let checker = matches.value_of("checker").unwrap_or("ssh");
             let ip = matches.value_of("ip").unwrap_or("");
