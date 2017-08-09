@@ -80,8 +80,8 @@ impl AliyunECSController {
         if let Some(ref slack_webhook_url) = self.slack_webhook_url {
             let body: HashMap<&str, &str> = [("text", message)].iter().cloned().collect();
             let _ = self.client
-                .post(slack_webhook_url)
-                .json(&body)
+                .post(slack_webhook_url)?
+                .json(&body)?
                 .send()?;
         }
         Ok(())
@@ -127,7 +127,7 @@ impl AliyunECSController {
         SignatureVersion=1.0
         */
         let uuid_str: &str = &Uuid::new_v4().hyphenated().to_string();
-        let ts: &str = &UTC::now().format(TIME_FORMAT).to_string();
+        let ts: &str = &Utc::now().format(TIME_FORMAT).to_string();
         let mut params: Vec<(String, String)> = vec![("Timestamp", ts),
                                                      ("Format", "json"),
                                                      ("AccessKeyId", &self.access_key_id),
@@ -180,7 +180,7 @@ impl AliyunECSController {
                                          ("EndTime", end_time)]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
-            .get(url)
+            .get(url)?
             .send()?
             .json::<rep::MonitorResponse>();
         response
@@ -189,7 +189,7 @@ impl AliyunECSController {
     }
 
     fn describe_monitor_data(&self) -> Result<()> {
-        let current_time = UTC::now();
+        let current_time = Utc::now();
         let end_time = NaiveDateTime::from_timestamp(current_time.timestamp() - 30, 0);
         let start_time = NaiveDateTime::from_timestamp(current_time.timestamp() - 150, 0);
         let monitor_info = Arc::new(Mutex::new(Vec::new()));
@@ -224,7 +224,7 @@ impl AliyunECSController {
         let params = self.signature(vec![("Action", "DescribeRegions"),
                                          ("RegionId", "cn-hangzhou")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let response = self.client.get(url).send()?.json::<rep::Regions>()?;
+        let response = self.client.get(url)?.send()?.json::<rep::Regions>()?;
         for region in &response.regions {
             println!("{}\t{}", region.id, region.name);
         }
@@ -239,7 +239,7 @@ impl AliyunECSController {
                                          ("RegionId", "cn-beijing")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
-            .get(url)
+            .get(url)?
             .send()?
             .json::<rep::Instances>()?;
         Ok(response.instances)
@@ -250,8 +250,8 @@ impl AliyunECSController {
         let params = self.signature(vec![("Action", "StartInstance"),
                                          ("InstanceId", instance_id)]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let res = self.client.get(url).send()?;
-        if *res.status() == reqwest::StatusCode::Ok {
+        let res = self.client.get(url)?.send()?;
+        if res.status() == reqwest::StatusCode::Ok {
             println!("Boot request to {} sended!", instance_id);
             return Ok(true);
         } else {
@@ -266,8 +266,8 @@ impl AliyunECSController {
                                          ("InstanceId", instance_id),
                                          ("ForceStop", "true")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let res = self.client.get(url).send()?;
-        if *res.status() == reqwest::StatusCode::Ok {
+        let res = self.client.get(url)?.send()?;
+        if res.status() == reqwest::StatusCode::Ok {
             println!("Reboot request to {} sended!", instance_id);
             return Ok(true);
         } else {
