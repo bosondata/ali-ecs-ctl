@@ -10,5 +10,6 @@ error_chain! {
         Http(reqwest::Error);
         Url(url::ParseError);
         Statsd(statsd::client::StatsdError);
+        ParseIntError(::std::num::ParseIntError);
     }
 }

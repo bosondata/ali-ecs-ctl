@@ -8,14 +8,14 @@ addons:
       - libdw-dev
       - binutils-dev
 rust:
-  - stable
-  - beta
+  # - stable
+  # - beta
   - nightly
 
 matrix:
   allow_failures:
     - rust: beta
-    - rust: nightly
+    # - rust: nightly
 
 before_script:
   - pip install 'travis-cargo<0.2' --user && export PATH=$HOME/.local/bin:$PATH
