@@ -1,3 +1,4 @@
+#![feature(lookup_host)]
 #![recursion_limit = "1024"]
 
 extern crate reqwest;
@@ -27,6 +28,7 @@ use std::sync::{Arc, Mutex};
 use std::process::Command;
 use std::collections::HashMap;
 use std::iter::FromIterator;
+use std::net::lookup_host;
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
@@ -88,9 +90,14 @@ impl AliyunECSController {
     }
 
     fn send_statsd_metrics(&self, monitor_info: &[(String, rep::MonitorData)]) -> Result<()> {
-        //TODO: Only IP address supported in STATSD_URL
         if let Some(ref statsd_url) = self.statsd_url {
-            let mut client = StatsdClient::new(statsd_url, "aliyun.monitor")?;
+            let parts: Vec<&str> = statsd_url.splitn(2, ":").collect();
+            let hostname = parts[0];
+            let port = parts[1];
+            let mut first_addr = lookup_host(hostname)?.next().expect("DNS resolve failed");
+            first_addr.set_port(u16::from_str_radix(port, 10)?);
+            let statsd_url = first_addr.to_string();
+            let mut client = StatsdClient::new(&statsd_url, "aliyun.monitor")?;
             let mut pipe = client.pipeline();
             for info in monitor_info.iter() {
                 let ip = info.0.replace(".", "_");
