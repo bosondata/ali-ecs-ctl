@@ -96,8 +96,7 @@ impl AliyunECSController {
             let port = parts[1];
             let mut first_addr = lookup_host(hostname)?.next().expect("DNS resolve failed");
             first_addr.set_port(u16::from_str_radix(port, 10)?);
-            let statsd_url = first_addr.to_string();
-            let mut client = StatsdClient::new(&statsd_url, "aliyun.monitor")?;
+            let mut client = StatsdClient::new(first_addr, "aliyun.monitor")?;
             let mut pipe = client.pipeline();
             for info in monitor_info.iter() {
                 let ip = info.0.replace(".", "_");
