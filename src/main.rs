@@ -26,7 +26,7 @@ mod rep;
 use std::env;
 use std::sync::{Arc, Mutex};
 use std::process::Command;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
 use std::net::lookup_host;
 use url::Url;
@@ -282,7 +282,7 @@ impl AliyunECSController {
         Ok(false)
     }
 
-    fn reboot_unresponded_instances<F>(&self, check_func: &F) -> Result<()>
+    fn reboot_unresponded_instances<F>(&self, check_func: &F, exclude_ips: HashSet<&str>) -> Result<()>
         where F: Fn(&str) -> bool,
               F: Sync + Send
     {
@@ -293,9 +293,12 @@ impl AliyunECSController {
         pool.scoped(|scope| {
             for instance in instance_info {
                 let rebooted_instances = rebooted_instances.clone();
+                let exclude_ips = exclude_ips.clone();
                 scope.execute(move || {
                     let ip = instance.ip();
-                    if !check_func(ip) {
+                    if exclude_ips.contains(ip) {
+                        println!("Ignore {} because it's in exclude IPs", ip);
+                    } else if !check_func(ip) {
                         println!("{} no ping/ssh respond, sending reboot(force) request.", ip);
                         let request_sended = self.reboot_instance(&instance.id).unwrap_or(false);
                         if request_sended {
@@ -429,6 +432,13 @@ fn main() {
                  .value_name("checker")
                  .help("Method use to check instance availability, choices: ssh/ping")
                  .takes_value(true))
+        .arg(Arg::with_name("exclude")
+                 .short("x")
+                 .long("exclude")
+                 .value_name("exclude_ip")
+                 .help("IP addresses which do not check availability, separate with comma")
+                 .use_delimiter(true)
+                 .takes_value(true))
         .arg(Arg::with_name("ip")
                  .long("ip")
                  .value_name("ip")
@@ -451,16 +461,23 @@ fn main() {
         "reboot" => {
             let checker = matches.value_of("checker").unwrap_or("ssh");
             let ip = matches.value_of("ip").unwrap_or("");
+            let exclude_ips: HashSet<&str> = HashSet::from_iter(
+                matches
+                    .values_of("exclude")
+                    .unwrap()
+                    .collect::<Vec<&str>>()
+                    .into_iter()
+            );
             if ip == "" {
                 match checker {
                     "ssh" => {
                         ecs_ctl
-                            .reboot_unresponded_instances(&is_ssh_ok)
+                            .reboot_unresponded_instances(&is_ssh_ok, exclude_ips)
                             .expect("Reboot unresponded instances failed")
                     }
                     "ping" => {
                         ecs_ctl
-                            .reboot_unresponded_instances(&ping_ok)
+                            .reboot_unresponded_instances(&ping_ok, exclude_ips)
                             .expect("Reboot unresponded instances failed")
                     }
                     _ => {
