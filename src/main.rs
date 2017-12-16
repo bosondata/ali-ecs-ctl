@@ -304,6 +304,13 @@ impl AliyunECSController {
                         if request_sended {
                             let mut rebooted_instances = rebooted_instances.lock().unwrap();
                             rebooted_instances.push(ip.to_string());
+                        } else {
+                            println!("reboot failed, trying booting the instance {}", ip);
+                            let boot_request_sended = self.boot_instance(&instance.id).unwrap_or(false);
+                            if boot_request_sended {
+                                let mut rebooted_instances = rebooted_instances.lock().unwrap();
+                                rebooted_instances.push(ip.to_string());
+                            }
                         }
                     } else {
                         println!("{} is OK.", ip);
@@ -313,7 +320,7 @@ impl AliyunECSController {
         });
         let rebooted_instances = rebooted_instances.clone();
         let rebooted_instances = rebooted_instances.lock().unwrap();
-        let mut msg = format!("{} instance(s) checked, {} rebooted.",
+        let mut msg = format!("{} instance(s) checked, {} (re)booted.",
                               cnt,
                               rebooted_instances.len());
         println!("{}", msg);
@@ -461,13 +468,17 @@ fn main() {
         "reboot" => {
             let checker = matches.value_of("checker").unwrap_or("ssh");
             let ip = matches.value_of("ip").unwrap_or("");
-            let exclude_ips: HashSet<&str> = HashSet::from_iter(
-                matches
-                    .values_of("exclude")
-                    .unwrap()
-                    .collect::<Vec<&str>>()
-                    .into_iter()
-            );
+            let exclude_ips: HashSet<&str> = if matches.is_present("exclude") {
+                HashSet::from_iter(
+                    matches
+                        .values_of("exclude")
+                        .unwrap()
+                        .collect::<Vec<&str>>()
+                        .into_iter()
+                )
+            } else {
+                HashSet::new()
+            };
             if ip == "" {
                 match checker {
                     "ssh" => {
