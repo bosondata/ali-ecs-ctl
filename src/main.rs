@@ -251,6 +251,30 @@ impl AliyunECSController {
         Ok(response.instances)
     }
 
+    fn get_instance_status(&self) -> Result<Vec<rep::InstanceStatus>> {
+        let mut instance_statuses: Vec<rep::InstanceStatus> = Vec::new();
+        let mut page = 1;
+        loop {
+            let mut url = Url::parse(ALIYUN_API)?;
+            let page_str = page.to_string();
+            let params = self.signature(vec![("Action", "DescribeInstanceStatus"),
+                                             ("PageNumber", &page_str),
+                                             ("PageSize", "50"),
+                                             ("RegionId", "cn-beijing")]);
+            url.query_pairs_mut().extend_pairs(params.into_iter());
+            let partial_response = self.client
+                .get(url)?
+                .send()?
+                .json::<rep::InstanceStatuses>()?;
+            if partial_response.instance_statuses.is_empty() {
+                break;
+            }
+            page += 1;
+            instance_statuses.extend(partial_response.instance_statuses);
+        }
+        Ok(instance_statuses)
+    }
+
     fn boot_instance(&self, instance_id: &str) -> Result<bool> {
         let mut url = Url::parse(ALIYUN_API)?;
         let params = self.signature(vec![("Action", "StartInstance"),
@@ -506,11 +530,16 @@ fn main() {
             ecs_ctl.reboot_all().expect("Reboot all nodes failed");
         }
         "list" => {
+            let instance_status: HashMap<String, String> = ecs_ctl.get_instance_status().expect("Get instance status failed")
+                .iter()
+                .map(|instance| (instance.id.to_string(), instance.status.to_string()))
+                .collect();
             for instance in &ecs_ctl.get_instances().expect("Get instances failed") {
-                println!("Id: {} Name: {} Public IP: {}",
+                println!("Id: {} Name: {} Public IP: {} Status: {}",
                          instance.id,
                          instance.name,
-                         instance.ip());
+                         instance.ip(),
+                         instance_status.get(&instance.id.to_string()).unwrap_or(&"UNKNOWN".to_string()));
             }
         }
         "regions" => {

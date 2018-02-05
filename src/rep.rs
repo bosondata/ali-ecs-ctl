@@ -33,6 +33,27 @@ pub struct Instances {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct InstanceStatus {
+    #[serde(rename = "InstanceId")]
+    pub id: String,
+    #[serde(rename = "Status")]
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct InstanceStatuses {
+    #[serde(deserialize_with = "deserialize_single_key_map")]
+    #[serde(rename = "InstanceStatuses")]
+    pub instance_statuses: Vec<InstanceStatus>,
+    #[serde(rename = "TotalCount")]
+    pub total: usize,
+    #[serde(rename = "PageNumber")]
+    pub page: usize,
+    #[serde(rename = "PageSize")]
+    pub size: usize,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Region {
     #[serde(rename = "RegionId")]
     pub id: String,
