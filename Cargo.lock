@@ -14,7 +14,7 @@ dependencies = [
 
 [[package]]
 name = "ali-ecs-ctl"
-version = "1.4.0"
+version = "1.5.0"
 dependencies = [
  "base64 0.7.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "chrono 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
