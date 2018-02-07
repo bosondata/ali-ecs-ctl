@@ -188,10 +188,11 @@ impl AliyunECSController {
         let response = self.client
             .get(url)?
             .send()?
-            .json::<rep::MonitorResponse>();
-        response
-            .map(|obj| obj.monitor_data.last().expect("No monitor data").clone())
-            .chain_err(|| "error describing instance monitor data")
+            .json::<rep::MonitorResponse>()?;
+        response.monitor_data
+            .last()
+            .cloned()
+            .ok_or_else(|| Error::from_kind(ErrorKind::NoMonitorData(instance_id.to_string())))
     }
 
     fn describe_monitor_data(&self) -> Result<()> {
