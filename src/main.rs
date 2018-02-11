@@ -43,7 +43,7 @@ use statsd::Client as StatsdClient;
 
 use errors::*;
 
-static ALIYUN_API: &'static str = "http://ecs-cn-hangzhou.aliyuncs.com";
+static ALIYUN_API: &'static str = "https://ecs-cn-hangzhou.aliyuncs.com";
 static TIME_FORMAT: &'static str = "%Y-%m-%dT%H:%M:%SZ";
 static HTTP_GET: &'static str = "GET";
 
@@ -399,6 +399,85 @@ impl AliyunECSController {
         Ok(())
     }
 
+    fn allocate_ip(&self, instance_id: &str) -> Result<bool>{
+        let mut url = Url::parse(ALIYUN_API)?;
+        let params = self.signature(vec![
+            ("Action", "AllocatePublicIpAddress"),
+            ("InstanceId", instance_id)]);
+        url.query_pairs_mut().extend_pairs(params.into_iter());
+        let response = self.client
+            .get(url)?
+        .send()?;
+        if response.status() == reqwest::StatusCode::Ok {
+            println!("Allocate IP request sended!");
+            return Ok(true);
+        } else {
+            println!("Allocate IP fail with status {:?}", response.status());
+        }
+        Ok(false)
+    }
+
+    fn create_spot_instance(&self, hostname: &str, image_id: &str, security_group_id: &str) -> Result<()> {
+        let mut url = Url::parse(ALIYUN_API)?;
+        let params = self.signature(vec![
+            ("Action", "CreateInstance"),
+            ("RegionId", "cn-beijing"),
+            ("InstanceType", "ecs.t1.small"),
+            ("ImageId", image_id),
+            ("SecurityGroupId", security_group_id),
+            ("SpotStrategy", "SpotWithPriceLimit"),
+            ("SpotPriceLimit", "0.06"),
+            ("InternetChargeType", "PayByTraffic"),
+            ("InternetMaxBandwidthIn", "10"),
+            ("InternetMaxBandwidthOut", "10"),
+            ("InstanceName", hostname),
+            ("HostName", hostname),
+            ]);
+        url.query_pairs_mut().extend_pairs(params.into_iter());
+        let response = self.client
+            .get(url)?
+            .send()?
+            .json::<rep::InstanceCreateResponse>()?;
+        println!("Instance {} created", response.id);
+        self.allocate_ip(&response.id).expect("Allocate IP failed.");
+        self.boot_instance(&response.id).expect("Boot instance failed");
+        Ok(())
+    }
+
+    fn stop_instance(&self, instance_id: &str) -> Result<(bool)> {
+        let mut url = Url::parse(ALIYUN_API)?;
+        let params = self.signature(vec![
+            ("Action", "StopInstance"),
+            ("InstanceId", instance_id),
+            ("ForceStop", "true"),
+        ]);
+        url.query_pairs_mut().extend_pairs(params.into_iter());
+        let res = self.client.get(url)?.send()?;
+        if res.status() == reqwest::StatusCode::Ok {
+            println!("Stop instance request to {} sended!", instance_id);
+            return Ok(true);
+        } else {
+            println!("Stop instance request fail with status {:?}", res.status());
+        }
+        Ok(false)
+    }
+
+    fn delete_instance(&self, instance_id: &str) -> Result<(bool)> {
+        let mut url = Url::parse(ALIYUN_API)?;
+        let params = self.signature(vec![
+            ("Action", "DeleteInstance"),
+            ("InstanceId", instance_id),
+        ]);
+        url.query_pairs_mut().extend_pairs(params.into_iter());
+        let res = self.client.get(url)?.send()?;
+        if res.status() == reqwest::StatusCode::Ok {
+            println!("Delete instance request to {} sended!", instance_id);
+            return Ok(true);
+        } else {
+            println!("Delete instance request fail with status {:?}", res.status());
+        }
+        Ok(false)
+    }
 }
 
 fn show_monitor_data_table(monitor_info: &[(String, rep::MonitorData)]) {
@@ -476,10 +555,45 @@ fn main() {
                  .value_name("ip")
                  .help("Specify single instance IP to reboot")
                  .takes_value(true))
+         .arg(Arg::with_name("hostname")
+                 .long("hostname")
+                 .value_name("hostname")
+                 .help("Instance hostname")
+                 .takes_value(true))
+         .arg(Arg::with_name("image_id")
+                 .long("image_id")
+                 .value_name("image_id")
+                 .help("Image ID for create instance, e.g: ubuntu_16_0402_64_40G_base_20170222.vhd")
+                 .takes_value(true))
+         .arg(Arg::with_name("security_group")
+                 .long("security_group")
+                 .value_name("security_group")
+                 .help("Security group ID for create instance")
+                 .takes_value(true))
+         .arg(Arg::with_name("instance_id")
+                 .long("instance_id")
+                 .value_name("instance_id")
+                 .help("Instnace ID for allocate IP & delete instance")
+                 .takes_value(true))
         .get_matches();
     let cmd = matches.value_of("COMMAND").unwrap();
     let ecs_ctl = AliyunECSController::from_envvar();
     match cmd {
+        "create" => {
+            let hostname = matches.value_of("hostname").unwrap();
+            let image = matches.value_of("image_id").unwrap();
+            let security_group = matches.value_of("security_group").unwrap();
+            ecs_ctl.create_spot_instance(hostname, image, security_group).expect("Instance create failed");
+        }
+        "delete" => {
+            let instance_id = matches.value_of("instance_id").unwrap();
+            ecs_ctl.stop_instance(instance_id).expect("Instance stop failed");
+            ecs_ctl.delete_instance(instance_id).expect("Instance delete failed");
+        }
+        "allocateip" => {
+            let instance_id = matches.value_of("instance_id").unwrap();
+            ecs_ctl.allocate_ip(instance_id).expect("Allocate IP failed");
+        }
         "boot" => {
             let ip = matches.value_of("ip").unwrap_or("");
             if ip != "" {
@@ -536,10 +650,8 @@ fn main() {
                 .map(|instance| (instance.id.to_string(), instance.status.to_string()))
                 .collect();
             for instance in &ecs_ctl.get_instances().expect("Get instances failed") {
-                println!("Id: {} Name: {} Public IP: {} Status: {}",
-                         instance.id,
-                         instance.name,
-                         instance.ip(),
+                println!("Instance: {:?} Status: {}",
+                         instance,
                          instance_status.get(&instance.id.to_string()).unwrap_or(&"UNKNOWN".to_string()));
             }
         }
