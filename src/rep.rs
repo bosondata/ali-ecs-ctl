@@ -69,6 +69,13 @@ pub struct Regions {
 }
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct InstanceCreateResponse {
+    #[serde(rename = "InstanceId")]
+    pub id: String,
+}
+
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct MonitorData {
     #[serde(rename = "InstanceId")]
     pub instance_id: String,
