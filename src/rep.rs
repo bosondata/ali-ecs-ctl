@@ -3,6 +3,16 @@ use std::marker::PhantomData;
 use serde::de::{self, Deserializer, DeserializeOwned};
 
 #[derive(Debug, Deserialize, Clone)]
+pub struct Pagination {
+    #[serde(rename = "TotalCount")]
+    pub total: usize,
+    #[serde(rename = "PageNumber")]
+    pub page: usize,
+    #[serde(rename = "PageSize")]
+    pub size: usize,
+}
+
+#[derive(Debug, Deserialize, Clone)]
 pub struct Instance {
     #[serde(rename = "InstanceId")]
     pub id: String,
@@ -24,12 +34,8 @@ pub struct Instances {
     #[serde(deserialize_with = "deserialize_single_key_map")]
     #[serde(rename = "Instances")]
     pub instances: Vec<Instance>,
-    #[serde(rename = "TotalCount")]
-    pub total: usize,
-    #[serde(rename = "PageNumber")]
-    pub page: usize,
-    #[serde(rename = "PageSize")]
-    pub size: usize,
+    #[serde(flatten)]
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -45,12 +51,8 @@ pub struct InstanceStatuses {
     #[serde(deserialize_with = "deserialize_single_key_map")]
     #[serde(rename = "InstanceStatuses")]
     pub instance_statuses: Vec<InstanceStatus>,
-    #[serde(rename = "TotalCount")]
-    pub total: usize,
-    #[serde(rename = "PageNumber")]
-    pub page: usize,
-    #[serde(rename = "PageSize")]
-    pub size: usize,
+    #[serde(flatten)]
+    pub pagination: Pagination,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -203,9 +205,9 @@ mod tests {
   "TotalCount": 1
 }"#;
         let instances = ::serde_json::from_str::<super::Instances>(json).unwrap();
-        assert_eq!(instances.page, 1);
-        assert_eq!(instances.size, 10);
-        assert_eq!(instances.total, 1);
+        assert_eq!(instances.pagination.page, 1);
+        assert_eq!(instances.pagination.size, 10);
+        assert_eq!(instances.pagination.total, 1);
         assert_eq!(instances.instances.len(), 1);
         let instance = &instances.instances[0];
         assert_eq!(instance.id, "i-94t3s0jxk");
