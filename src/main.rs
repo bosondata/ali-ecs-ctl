@@ -17,8 +17,9 @@ extern crate num_cpus;
 #[macro_use]
 extern crate prettytable;
 extern crate statsd;
+extern crate failure;
 #[macro_use]
-extern crate error_chain;
+extern crate failure_derive;
 
 mod errors;
 mod rep;
@@ -186,7 +187,7 @@ impl AliyunECSController {
         response.monitor_data
             .last()
             .cloned()
-            .ok_or_else(|| Error::from_kind(ErrorKind::NoMonitorData(instance_id.to_string())))
+            .ok_or_else(|| AliEcsCtlError::NoMonitorData(instance_id.to_string()).into())
     }
 
     fn describe_monitor_data(&self) -> Result<()> {
