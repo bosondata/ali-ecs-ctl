@@ -1,22 +1,9 @@
-use serde_json;
-use reqwest;
-use url;
-use statsd;
+use failure::Error;
 
-error_chain! {
-    errors {
-        NoMonitorData(instance_id: String) {
-            description("no monitor data")
-            display("no monitor data for: '{}'", instance_id)
-        }
-    }
-
-    foreign_links {
-        Io(::std::io::Error);
-        Json(serde_json::Error);
-        Http(reqwest::Error);
-        Url(url::ParseError);
-        Statsd(statsd::client::StatsdError);
-        ParseIntError(::std::num::ParseIntError);
-    }
+#[derive(Debug, Fail)]
+pub enum AliEcsCtlError {
+    #[fail(display = "no monitor data for instance: {}", _0)]
+    NoMonitorData(String),
 }
+
+pub type Result<T> = ::std::result::Result<T, Error>;

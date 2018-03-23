@@ -17,8 +17,9 @@ extern crate num_cpus;
 #[macro_use]
 extern crate prettytable;
 extern crate statsd;
+extern crate failure;
 #[macro_use]
-extern crate error_chain;
+extern crate failure_derive;
 
 mod errors;
 mod rep;
@@ -28,7 +29,6 @@ use std::sync::{Arc, Mutex};
 use std::process::Command;
 use std::collections::{HashMap, HashSet};
 use std::iter::FromIterator;
-use std::net::lookup_host;
 use url::Url;
 use url::percent_encoding::{utf8_percent_encode, USERINFO_ENCODE_SET};
 use chrono::prelude::*;
@@ -66,7 +66,7 @@ impl AliyunECSController {
             secret: secret,
             slack_webhook_url: slack_webhook_url,
             statsd_url: statsd_url,
-            client: reqwest::Client::new().expect("Failed to init http client"),
+            client: reqwest::Client::new(),
         }
     }
 
@@ -82,8 +82,8 @@ impl AliyunECSController {
         if let Some(ref slack_webhook_url) = self.slack_webhook_url {
             let body: HashMap<&str, &str> = [("text", message)].iter().cloned().collect();
             let _ = self.client
-                .post(slack_webhook_url)?
-                .json(&body)?
+                .post(slack_webhook_url)
+                .json(&body)
                 .send()?;
         }
         Ok(())
@@ -91,12 +91,7 @@ impl AliyunECSController {
 
     fn send_statsd_metrics(&self, monitor_info: &[(String, rep::MonitorData)]) -> Result<()> {
         if let Some(ref statsd_url) = self.statsd_url {
-            let parts: Vec<&str> = statsd_url.splitn(2, ":").collect();
-            let hostname = parts[0];
-            let port = parts[1];
-            let mut first_addr = lookup_host(hostname)?.next().expect("DNS resolve failed");
-            first_addr.set_port(u16::from_str_radix(port, 10)?);
-            let mut client = StatsdClient::new(first_addr, "aliyun.monitor")?;
+            let mut client = StatsdClient::new(statsd_url, "aliyun.monitor")?;
             let mut pipe = client.pipeline();
             for info in monitor_info.iter() {
                 let ip = info.0.replace(".", "_");
@@ -186,13 +181,13 @@ impl AliyunECSController {
                                          ("EndTime", end_time)]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
-            .get(url)?
+            .get(url)
             .send()?
             .json::<rep::MonitorResponse>()?;
         response.monitor_data
             .last()
             .cloned()
-            .ok_or_else(|| Error::from_kind(ErrorKind::NoMonitorData(instance_id.to_string())))
+            .ok_or_else(|| AliEcsCtlError::NoMonitorData(instance_id.to_string()).into())
     }
 
     fn describe_monitor_data(&self) -> Result<()> {
@@ -231,7 +226,7 @@ impl AliyunECSController {
         let params = self.signature(vec![("Action", "DescribeRegions"),
                                          ("RegionId", "cn-hangzhou")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let response = self.client.get(url)?.send()?.json::<rep::Regions>()?;
+        let response = self.client.get(url).send()?.json::<rep::Regions>()?;
         for region in &response.regions {
             println!("{}\t{}", region.id, region.name);
         }
@@ -246,7 +241,7 @@ impl AliyunECSController {
                                          ("RegionId", "cn-beijing")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
-            .get(url)?
+            .get(url)
             .send()?
             .json::<rep::Instances>()?;
         Ok(response.instances)
@@ -264,7 +259,7 @@ impl AliyunECSController {
                                              ("RegionId", "cn-beijing")]);
             url.query_pairs_mut().extend_pairs(params.into_iter());
             let partial_response = self.client
-                .get(url)?
+                .get(url)
                 .send()?
                 .json::<rep::InstanceStatuses>()?;
             if partial_response.instance_statuses.is_empty() {
@@ -281,7 +276,7 @@ impl AliyunECSController {
         let params = self.signature(vec![("Action", "StartInstance"),
                                          ("InstanceId", instance_id)]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let res = self.client.get(url)?.send()?;
+        let res = self.client.get(url).send()?;
         if res.status() == reqwest::StatusCode::Ok {
             println!("Boot request to {} sended!", instance_id);
             return Ok(true);
@@ -297,7 +292,7 @@ impl AliyunECSController {
                                          ("InstanceId", instance_id),
                                          ("ForceStop", "true")]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let res = self.client.get(url)?.send()?;
+        let res = self.client.get(url).send()?;
         if res.status() == reqwest::StatusCode::Ok {
             println!("Reboot request to {} sended!", instance_id);
             return Ok(true);
@@ -406,7 +401,7 @@ impl AliyunECSController {
             ("InstanceId", instance_id)]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
-            .get(url)?
+            .get(url)
         .send()?;
         if response.status() == reqwest::StatusCode::Ok {
             println!("Allocate IP request sended!");
@@ -435,7 +430,7 @@ impl AliyunECSController {
             ]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
         let response = self.client
-            .get(url)?
+            .get(url)
             .send()?
             .json::<rep::InstanceCreateResponse>()?;
         println!("Instance {} created", response.id);
@@ -452,7 +447,7 @@ impl AliyunECSController {
             ("ForceStop", "true"),
         ]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let res = self.client.get(url)?.send()?;
+        let res = self.client.get(url).send()?;
         if res.status() == reqwest::StatusCode::Ok {
             println!("Stop instance request to {} sended!", instance_id);
             return Ok(true);
@@ -469,7 +464,7 @@ impl AliyunECSController {
             ("InstanceId", instance_id),
         ]);
         url.query_pairs_mut().extend_pairs(params.into_iter());
-        let res = self.client.get(url)?.send()?;
+        let res = self.client.get(url).send()?;
         if res.status() == reqwest::StatusCode::Ok {
             println!("Delete instance request to {} sended!", instance_id);
             return Ok(true);
